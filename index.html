@@ -2611,8 +2611,18 @@
             "s": { selector: ".chartSlipHider", storageKey: "slipGraphSetts" },
             "p": { selector: ".inputsHider", storageKey: "inputPercentsSetts" },
             "c": { selector: ".porscheTableHider", storageKey: "standingsSetts" },
-            "x": { selector: ".startLightHider", storageKey: "startingLightsSetts" }
+            "x": { selector: ".startLightHider", storageKey: "startingLightsSetts" },
+
+            // special toggle-all key
+            "z": { action: "toggleAll" }
         };
+
+        const selectorMap = {};
+        Object.values(keyMap).forEach(({ selector, storageKey, action }) => {
+            if (action) return;
+            selectorMap[selector] = storageKey;
+        });
+
     
         // restore hidden/visible states from localStorage
         function restoreHiddenState() {
@@ -2636,16 +2646,46 @@
             const isHidden = el.classList.contains("maxHide");
             localStorage.setItem(storageKey, isHidden ? "hidden" : "visible");
         }
+
+        function toggleAllWidgets() {
+            let allHidden = localStorage.getItem("allHidden") === "true";
+            allHidden = !allHidden; // flip the toggle
+            localStorage.setItem("allHidden", allHidden);
+
+            Object.values(keyMap).forEach(({ selector, storageKey, action }) => {
+                if (action) return;
+                const el = document.querySelector(selector);
+                if (!el) return;
+
+                if (allHidden) {
+                // store current visibility before hiding
+                const currentlyVisible = !el.classList.contains("maxHide");
+                localStorage.setItem(storageKey, currentlyVisible ? "visible" : "hidden");
+                el.classList.add("maxHide");
+                } else {
+                // restore from storage
+                const state = localStorage.getItem(storageKey);
+                if (state === "hidden") el.classList.add("maxHide");
+                else el.classList.remove("maxHide");
+                }
+            });
+        }
     
         // restore on page load
         //window.addEventListener("DOMContentLoaded", restoreHiddenState);
     
         // key listener
         document.addEventListener("keydown", (e) => {
-        const key = e.key.toLowerCase();
-        if (keyMap[key]) {
-            toggleElement(keyMap[key].selector, keyMap[key].storageKey);
-        }
+            // const key = e.key.toLowerCase();
+            // if (keyMap[key]) {
+            //     toggleElement(keyMap[key].selector, keyMap[key].storageKey);
+            // }
+            const key = e.key.toLowerCase();
+            const mapping = keyMap[key];
+            if (!mapping) return;
+
+            if (mapping.action === "toggleAll") toggleAllWidgets();
+            else toggleElement(mapping.selector, mapping.storageKey);
         });
     </script>
 </body>
