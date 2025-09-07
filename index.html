@@ -1,0 +1,2652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebHud</title>
+
+    <script>
+        function float16ToFloat32(uint16) {
+            const sign = (uint16 & 0x8000) >> 15;  // Extract the sign bit (1 bit)
+            const exponent = (uint16 & 0x7C00) >> 10;  // Extract the exponent (5 bits)
+            const mantissa = uint16 & 0x03FF;  // Extract the mantissa (10 bits)
+
+            // Handle special cases
+            if (exponent === 0) {
+                if (mantissa === 0) {
+                    // Zero value (either positive or negative)
+                    return sign === 0 ? 0 : -0;
+                }
+                // Subnormal number
+                return (sign ? -1 : 1) * Math.pow(2, -14) * (mantissa / 1024);
+            } else if (exponent === 31) {
+                if (mantissa === 0) {
+                    // Infinity (positive or negative)
+                    return sign ? -Infinity : Infinity;
+                }
+                // NaN (Not a Number)
+                return NaN;
+            }
+
+            // Normalized number
+            return (sign ? -1 : 1) * Math.pow(2, exponent - 15) * (1 + mantissa / 1024);
+        }
+        // document.addEventListener('keydown', function(event) {
+        //     if (event.key === 'Escape' || event.key === 'Esc') {
+        //         socket.send("kek");
+        //         socket.close();
+        //     }
+        // });
+        window.addEventListener('beforeunload', function (event) {
+            // Custom logic before the page is closed
+            // Example: Closing a WebSocket connection
+            socket.send("k");
+            socket.close();
+
+        });
+        DataView.prototype.getUTF16String = function (offset, length) {
+            var utf16 = new ArrayBuffer(length * 2);
+            var utf16View = new Uint16Array(utf16);
+            for (var i = 0; i < length; ++i) {
+                utf16View[i] = this.getUint8(offset + i);
+            }
+            return String.fromCharCode.apply(null, utf16View);
+        };
+        function getTemperatureColor(temp, cold_temp, optimal_temp, hot_temp) {
+            var color;
+            if (temp <= cold_temp) {
+                color = `rgb(0,0,255)`;
+            } else if (temp >= hot_temp) {
+                color = `rgb(255,0,0)`;
+            } else if (temp == optimal_temp) {
+                color = `rgb(0,255,0)`;
+            } else if (temp < optimal_temp) {
+                var ratio = (temp - cold_temp) / (optimal_temp - cold_temp);
+                color = `rgb(0, ${Math.floor(255 * ratio)}, ${Math.floor(255 * (1 - ratio))})`;
+            } else {
+                var ratio = (temp - optimal_temp) / (hot_temp - optimal_temp);
+                color = `rgb(${Math.floor(255 * ratio)}, ${Math.floor(255 * (1 - ratio*1.2))}, 0)`;
+            }
+            return color;
+        }
+        
+        const socket = new WebSocket('ws://127.0.0.1:8082');
+
+        var loadedRat = {};
+        loadedRat[-1] = {
+            "UserId" : -1,
+            "Fullname" : "bot",
+            "Rating" :0,
+            "Reputation" : 0
+        };
+
+        var flagStatusYellow = 0;
+
+        document.addEventListener("DOMContentLoaded", function (event) {
+            var lastLap = document.querySelector("#lastlap");
+            var bestLapLead = document.querySelector("#bestlaplead");
+            var delta = document.querySelector("#delta");
+            var bestLap = document.querySelector("#bestlap");
+            var fuelMonitorTds = document.querySelectorAll("#fuelmonitor td");
+            var inputsTds = document.querySelectorAll("#inputs td");
+            var wheelsTds = document.querySelectorAll("#wheels td");
+            var relativeTrs = document.querySelectorAll("#relative tr");
+            var relativeTds = {};
+            var startLight = document.querySelector("#startLight");
+            var startLightDivs = document.querySelectorAll("#startLight div");
+
+            var flTemp1 = document.querySelector("#flTemp1");
+            var flWear = document.querySelector("#flWear");
+            var flPressure = document.querySelector("#flPressure");
+            var flDirt = document.querySelector("#flDirt");
+            var flBrake = document.querySelector("#flBrake");
+            var flTemp2 = document.querySelector("#flTemp2");
+            var flTemp3 = document.querySelector("#flTemp3");
+            
+            var frTemp1 = document.querySelector("#frTemp1");
+            var frWear = document.querySelector("#frWear");
+            var frPressure = document.querySelector("#frPressure");
+            var frDirt = document.querySelector("#frDirt");
+            var frBrake = document.querySelector("#frBrake");
+            var frTemp2 = document.querySelector("#frTemp2");
+            var frTemp3 = document.querySelector("#frTemp3");
+
+            var rlTemp1 = document.querySelector("#rlTemp1");
+            var rlWear = document.querySelector("#rlWear");
+            var rlPressure = document.querySelector("#rlPressure");
+            var rlDirt = document.querySelector("#rlDirt");
+            var rlBrake = document.querySelector("#rlBrake");
+            var rlTemp2 = document.querySelector("#rlTemp2");
+            var rlTemp3 = document.querySelector("#rlTemp3");
+
+            var rrTemp1 = document.querySelector("#rrTemp1");
+            var rrWear = document.querySelector("#rrWear");
+            var rrPressure = document.querySelector("#rrPressure");
+            var rrDirt = document.querySelector("#rrDirt");
+            var rrBrake = document.querySelector("#rrBrake");
+            var rrTemp2 = document.querySelector("#rrTemp2");
+            var rrTemp3 = document.querySelector("#rrTemp3");
+            
+            var driverBlocks = document.querySelectorAll(".driverBlock");
+            var raceLaps = document.querySelector("#raceLaps");
+            var raceTime = document.querySelector("#raceTime");
+            var standingsFlag = document.querySelector("#splitFlag");
+
+            var lastLapSetts;
+            var bestLapSetts;
+            var bestLapLeadSetts;
+            var deltaSetts;
+            var radarSetts;
+            var allTimeBestTableSetts;
+            var relativeTableSetts;
+            var wheelsSetts;
+            var inputGraphSetts;
+            var absgripGraphSetts;
+            var slipGraphSetts;
+            var inputPercentsSetts;
+            var standingsSetts;
+            var startingLightsSetts;
+            
+            var chv = [];
+
+            let canvas1 = document.getElementById('chart');
+            let ctx1 = canvas1.getContext('2d');
+
+            // document.querySelector("body").addEventListener("focusout", (event) => {
+            //     //event.target.style.background = "";
+            //     socket.send("uf");
+            // });
+            let data = {
+                labels: [],
+                datasets: [
+                    { label: 'Input 1', data: [], color: 'red' },
+                    { label: 'Input 2', data: [], color: 'green' },
+                    { label: 'Input 3', data: [], color: 'gray' },
+                    { label: 'Input 4', data: [], color: 'white' },
+                ]
+            };
+
+            function drawChart() {
+                // clear the canvas
+                ctx1.clearRect(0, 0, canvas1.width, canvas1.height);
+
+                // draw the datasets
+                data.datasets.forEach((dataset, i) => {
+                    ctx1.beginPath();
+                    ctx1.strokeStyle = dataset.color;
+                    ctx1.lineWidth = 1.5;
+                    dataset.data.forEach((point, j) => {
+                        ctx1.lineTo(j * 1.33, (canvas1.height - point +2)  > 150?148:canvas1.height - point +2);
+                        //ctx1.lineTo(j * 1, canvas1.height - point);
+                        //ctx1.lineTo(j * 10, point);
+                    });
+                    ctx1.stroke();
+                });
+
+                // draw the labels
+                ctx1.fillStyle = 'white';
+                ctx1.fillText(data.labels[data.labels.length - 1], canvas1.width - 50, canvas1.height - 10);
+            }
+
+
+
+
+
+
+
+
+
+
+            let canvas2 = document.getElementById('chartSlip');
+            let ctx2 = canvas2.getContext('2d');
+
+            let data1 = {
+                labels: [],
+                datasets: [
+                    { label: 'Input 1', data: [], color: 'white' },
+                    { label: 'Input 2', data: [], color: 'red' },
+                ]
+            };
+            
+            let data2 = {
+                labels: [],
+                datasets: [
+                    { label: 'Input 1', data: [], color: 'white' },
+                ]
+            };
+
+            function drawChartSlip() {
+                // clear the canvas
+                ctx2.clearRect(0, 0, canvas2.width, canvas2.height);
+
+                data2.datasets.forEach((dataset, i) => {
+                    dataset.data.forEach((point, j) => {
+                        
+                        ctx2.beginPath();
+                        ctx2.lineWidth = 1.5;
+                        switch (point) {
+                            case 1: ctx2.strokeStyle = 'rgba(255, 0, 0, 0.2)'; break;
+                            case 2: ctx2.strokeStyle = 'rgba(0, 255, 0, 0.2)'; break;
+                            case 3: return;
+                        }
+                        
+                        ctx2.moveTo(j * 1.33, 2);
+                        ctx2.lineTo(j * 1.33, (canvas2.height - point +2)  > 150?148:canvas2.height - point +2);
+                        //ctx2.lineTo(j * 1, canvas2.height - point);
+                        //ctx2.lineTo(j * 10, point);
+                        ctx2.stroke();
+                    });
+                });
+
+                // draw the datasets
+                data1.datasets.forEach((dataset, i) => {
+                    ctx2.beginPath();
+                    ctx2.strokeStyle = dataset.color;
+                    ctx2.lineWidth = 1.5;
+                    dataset.data.forEach((point, j) => {
+                        ctx2.lineTo(j * 1.33, (canvas2.height - point +2)  > 150?148:canvas2.height - point +2);
+                        //ctx2.lineTo(j * 1, canvas2.height - point);
+                        //ctx2.lineTo(j * 10, point);
+                    });
+                    ctx2.stroke();
+                });
+
+                // ctx2.beginPath();
+                // ctx2.strokeStyle = '';
+                // ctx2.lineWidth = 1.5;
+                // ctx2.lineTo(j * 1.33, (canvas2.height - point +2)  > 150?148:canvas2.height - point +2);
+                // ctx2.stroke();
+                // draw the labels
+                // ctx2.fillStyle = 'white';
+                // ctx2.fillText(data1.labels[data1.labels.length - 1], canvas2.width - 50, canvas2.height - 10);
+            }
+
+
+            const canvasAbs = document.getElementById('graphCanvas');
+            const ctxAbs = canvasAbs.getContext('2d');
+            
+            const width = canvasAbs.width;
+            const height = canvasAbs.height;
+
+            // Grid Configuration: Split the canvas into 2x2 grid
+            const gridSize = 2; // 2x2 grid
+            const cellWidth = width / gridSize;
+            const cellHeight = height / gridSize;
+
+
+            let dataAbs = [
+                [[[], []], [[], []]], // Top-left grid (2 lines)
+                [[[], []], [[], []]], // Top-right grid (2 lines)
+                [[[], []], [[], []]], // Bottom-left grid (2 lines)
+                [[[], []], [[], []]], // Bottom-right grid (2 lines)
+            ];
+
+            // Maximum number of points to display (adjust as needed)
+            const maxPoints = 300;
+            const pointSpacing = cellWidth / maxPoints;
+
+            
+
+            // Function to draw the grid lines
+            function drawGrid() {
+                ctxAbs.strokeStyle = 'white';
+                ctxAbs.lineWidth = 1;
+
+                // Draw vertical lines
+                for (let i = 1; i < gridSize; i++) {
+                    ctxAbs.beginPath();
+                    ctxAbs.moveTo(i * cellWidth, 0);
+                    ctxAbs.lineTo(i * cellWidth, height);
+                    ctxAbs.stroke();
+                }
+
+                // Draw horizontal lines
+                for (let i = 1; i < gridSize; i++) {
+                    ctxAbs.beginPath();
+                    ctxAbs.moveTo(0, i * cellHeight);
+                    ctxAbs.lineTo(width, i * cellHeight);
+                    ctxAbs.stroke();
+                }
+            }
+
+            function drawGraph() {
+                const padding = 5; // Add padding to prevent overlap with borders
+
+                for (let i = 0; i < gridSize; i++) {
+                    for (let j = 0; j < gridSize; j++) {
+                        const xOffset = j * cellWidth + padding;      // Add padding to the x offset
+                        const yOffset = i * cellHeight + padding;     // Add padding to the y offset
+                        const usableWidth = cellWidth - 2 * padding;  // Adjust usable width inside the cell
+                        const usableHeight = cellHeight - 2 * padding;// Adjust usable height inside the cell
+
+                        // Loop over each data line for this quadrant (e.g., 2 lines per quadrant)
+                        for (let line = 0; line < dataAbs[i][j].length; line++) {
+                            // Set color for each line
+                            ctxAbs.strokeStyle = (line === 0) ? 'cyan' : 'red';  // Use different colors for each line
+                            ctxAbs.lineWidth = 1.2;
+                            ctxAbs.beginPath(); // Begin one path per line
+
+                            // Move to the first point (scaled by percentage)
+                            if (dataAbs[i][j][line].length > 0) {
+                                const firstPoint = yOffset + usableHeight - (dataAbs[i][j][line][0] / 100 * usableHeight);
+                                ctxAbs.moveTo(xOffset, firstPoint);
+                            }
+
+                            // Line to subsequent points (scaled by percentage)
+                            for (let k = 1; k < dataAbs[i][j][line].length; k++) {
+                                const x = xOffset + k * (usableWidth / maxPoints);
+                                const y = yOffset + usableHeight - (dataAbs[i][j][line][k] / 100 * usableHeight);
+                                ctxAbs.lineTo(x, y);
+                            }
+
+                            // Stroke the path once per line
+                            ctxAbs.stroke();
+                        }
+                    }
+                }
+            }
+
+
+
+
+
+            function animate() {
+                ctxAbs.clearRect(0, 0, width, height); // Clear the canvas
+                drawGrid();                         // Draw the grid
+                drawGraph();                        // Draw the graph
+
+            }
+
+
+            for (let i = 0; i < relativeTrs.length; i++) {
+                relativeTds[i] = relativeTrs[i].querySelectorAll("td");
+            }
+            document.querySelector("#toggle-settings").addEventListener( "click", (e) => {
+                addSettingsListeners();
+            } )
+            document.querySelector("#reload-page").addEventListener( "click", (e) => {
+                window.location.reload();
+            } )
+
+            const canvas = document.getElementById('myCanvas');
+            const ctx = canvas.getContext('2d');
+            
+            var carMain = { x: canvas.width / 2, y: canvas.height / 2, rotation: 0, width: 1.970000*20, length: 4.756699*20 };
+            var cars = [];
+            
+            let canvasWidth, canvasHeight;
+
+            function updateCanvasSize(width, height) {
+                // canvasWidth = canvas.width = width;
+                // canvasHeight = canvas.height = height;
+                // requestAnimationFrame(drawCars);
+            }
+
+            
+            function drawCar(x, y, rotation, width, length, color) {
+                ctx.save();
+
+                ctx.translate(x, y);
+
+                ctx.rotate(rotation);
+
+                ctx.fillStyle = color;
+                
+                ctx.fillRect(-width / 2, -length / 2, width, length);
+
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                if (color == 'red') {
+                    ctx.lineTo(0, length / 2);
+                    ctx.strokeStyle = 'black';
+                    ctx.stroke();
+                } else {
+                    ctx.lineTo(0, -length / 2);
+                    ctx.strokeStyle = 'black';
+                    ctx.stroke();
+                    ctx.strokeStyle = 'red';
+                    ctx.beginPath();
+                    ctx.moveTo(0, 0);
+                    ctx.lineTo(length/2 * Math.cos(chv[0]), length/2 * Math.sin(chv[0]));
+                    ctx.stroke();
+
+                    ctx.strokeStyle = 'green';
+                    ctx.beginPath();
+                    ctx.moveTo(0, 0);
+                    ctx.lineTo(length/2 * Math.cos(chv[1]), length/2 * Math.sin(chv[1]));
+                    ctx.stroke();
+                }
+
+
+                
+                ctx.restore();
+            }
+
+            function drawCars() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                drawCar(carMain.x, carMain.y, carMain.rotation, carMain.width, carMain.length, 'white');
+
+                if ( cars.length > 0 )
+                for (let i = 0; i < cars.length; i++) {
+                    drawCar(cars[i].x, cars[i].y, cars[i].rotation, cars[i].width, cars[i].length, 'red');
+                }
+            }
+            function printFrame() {
+                drawCars();
+            }
+
+            updateCanvasSize(400,400);
+            //window.addEventListener('resize', updateCanvasSize);
+
+            requestAnimationFrame(drawCars);
+
+
+            var resizableTable = null;
+            var draggableCorner = null;
+            let isDragging = false;
+            let isResizing = false;
+            let isScaling = false;
+            let initialX, initialY, initialWidth, initialHeight, initialScale;
+            var isSettingsOn = false;
+            function msDwn ( e ) {
+
+                e.preventDefault();
+
+                if (/*e.target.id == "draggable-corner" &&*/ e.button == 2) {
+                    switch (e.button) {
+                        case 0:
+                            resizableTable = e.target.parentElement;
+                            isResizing = true;
+                            initialWidth = resizableTable.offsetWidth;
+                            initialHeight = resizableTable.offsetHeight;
+                            initialX = e.clientX;
+                            initialY = e.clientY;
+                            break;
+                        case 2:
+                            
+                            resizableTable = e.target;
+                            while (resizableTable.id !== 'resizable-table') {
+                                resizableTable = resizableTable.parentElement;
+                            }
+                            //resizableTable = e.target.parentElement.firstElementChild;
+                            resizableTable = resizableTable.firstElementChild;
+
+                            isScaling = true;
+
+                            var style = window.getComputedStyle(resizableTable);
+                            var transform = style.getPropertyValue('transform');
+                            if (transform != 'none') {
+                                var values = transform.split('(')[1].split(')')[0].split(',');
+                                
+                                initialScale = parseFloat(values[0]);
+                            } else {
+                                initialScale = 1;
+                            }
+                            
+                            initialX = e.clientX;
+                            initialY = e.clientY;
+                            break;
+                        default:
+                            console.log('Unexpected mouse button clicked.');
+                    }
+                } else {
+                    resizableTable = e.target;
+                    while (resizableTable.id !== 'resizable-table') {
+                        resizableTable = resizableTable.parentElement;
+                    }
+                    isDragging = true;
+                    initialX = e.clientX - resizableTable.offsetLeft;
+                    initialY = e.clientY - resizableTable.offsetTop;
+                }
+            }
+
+            function msMv ( e ) {
+                if (isScaling) {
+                    var movementX = e.clientX - initialX;
+                    var newScale = initialScale + movementX / 100;
+                    resizableTable.style.transform = 'scale(' + newScale + ')';
+                }/* else if (isResizing) {
+                    const deltaX = e.clientX - initialX;
+                    const deltaY = e.clientY - initialY;
+                    const newWidth = Math.max(30, initialWidth + deltaX);
+                    const newHeight = Math.max(30, initialHeight + deltaY);
+
+                    const maxX = window.innerWidth - resizableTable.offsetLeft;
+                    const maxY = window.innerHeight - resizableTable.offsetTop;
+
+                    resizableTable.style.width = `${Math.min(newWidth, maxX)}px`;
+                    resizableTable.style.height = `${Math.min(newHeight, maxY)}px`;
+                    if ( resizableTable.className === "canv" ) {
+                        updateCanvasSize(Math.min(newWidth, maxX), Math.min(newHeight, maxY));
+                    }
+                }*/ else if (isDragging) {
+                    const newX = e.clientX - initialX;
+                    const newY = e.clientY - initialY;
+
+                    // const maxX = window.innerWidth - resizableTable.offsetWidth;
+                    // const maxY = window.innerHeight - resizableTable.offsetHeight;
+
+                    resizableTable.style.left = `${newX}px`;
+                    resizableTable.style.top = `${newY}px`;
+                    // const clampedX = Math.max(0, Math.min(newX, maxX));
+                    // const clampedY = Math.max(0, Math.min(newY, maxY));
+
+                    // resizableTable.style.left = `${clampedX}px`;
+                    // resizableTable.style.top = `${clampedY}px`;
+                }
+            }
+
+            function msUp ( e ) {
+                isDragging = false;
+                isResizing = false;
+                isScaling = false;
+            }
+
+            function sendPositions () {
+                var firstLeft = -1000;
+                var dataToSend = [9];
+                    var count = 0
+                document.querySelectorAll("#resizable-table").forEach(function (element) {
+                    console.log(element)
+                    var rect = element.getBoundingClientRect();
+
+                    if (firstLeft == -1000) {
+                        firstLeft = rect.left;
+                    }
+                    dataToSend.push(Math.round(rect.left));
+                    dataToSend.push(Math.round(rect.top));
+                    var resizableTable = element.firstElementChild;
+                    var style = window.getComputedStyle(resizableTable);
+                    var transform = style.getPropertyValue('transform');
+                    if (transform != 'none') {
+                        var values = transform.split('(')[1].split(')')[0].split(',');
+                        var trans = parseFloat(values[0]);
+                        
+                        dataToSend.push(Math.floor(trans));
+                        dataToSend.push(Math.round((trans-Math.floor(trans))*100).toFixed(0));
+                        // dataToSend.push(Math.round((trans-Math.floor(trans))*100));
+                    } else {
+                        dataToSend.push(1);
+                        dataToSend.push(0);
+                    }
+                    count++;
+                });
+
+                var byteArray = new Uint16Array(dataToSend);
+                let char1 = firstLeft & 0xFF;  // Low byte
+                let char2 = (firstLeft >> 8) & 0xFF;
+                var buff = byteArray.buffer;
+
+                var viewTemp = new Uint8Array(buff);
+                console.log(viewTemp)
+
+                viewTemp[2] = char1;  
+                viewTemp[3] = char2;
+                const dataView = new DataView(buff);
+
+                // Function to get signed 8-bit integers
+                function getSignedInt8(view, byteOffset) {
+                    return view.getInt8(byteOffset);
+                }
+
+                var firstBuff = buff.slice(0, 98);
+                var secondBuff = buff.slice(98);
+
+                var modifiedSecondBuff = new Uint8Array(secondBuff.byteLength + 2);
+        
+                modifiedSecondBuff[0] = 99;
+                modifiedSecondBuff[1] = 0;
+                
+                modifiedSecondBuff.set(new Uint8Array(secondBuff), 2);
+                console.log(modifiedSecondBuff)
+
+                var viewCorrected = new Uint16Array(firstBuff);
+
+                socket.send(viewCorrected.buffer);
+
+                viewCorrected = new Uint16Array(modifiedSecondBuff.buffer);
+
+                socket.send(viewCorrected.buffer);
+                console.log(viewCorrected)
+                console.log(secondBuff)
+
+            }
+
+            function addSettingsListeners () {
+                if ( isSettingsOn === true ) {
+                    document.querySelectorAll("#resizable-table").forEach(function (element) {
+                        element.removeEventListener("mousedown", msDwn);
+                        element.querySelector("#draggable-corner").classList.add('hide');
+                        //element.classList.remove("border");
+                    });
+                    document.querySelector("#startLight").classList.add('hide');
+
+                    document.removeEventListener("mousemove", msMv);
+
+                    document.removeEventListener("mouseup", msUp);
+                    
+                    isSettingsOn = false;
+                    sendPositions();
+                } else {
+                    document.querySelectorAll("#resizable-table").forEach(function (element) {
+                        element.addEventListener("mousedown", msDwn);
+                        element.querySelector("#draggable-corner").classList.remove('hide');
+                        //element.classList.add("border");
+                    });;
+                    document.querySelector("#startLight").classList.remove('hide');
+
+                    document.addEventListener("mousemove", msMv);
+
+                    document.addEventListener("mouseup", msUp);
+                    
+                    isSettingsOn = true;
+                }
+            }
+
+            fl = document.querySelectorAll("#wheels td")[15]
+            fr = document.querySelectorAll("#wheels td")[16];
+            rl = document.querySelectorAll("#wheels td")[23];
+            rr = document.querySelectorAll("#wheels td")[24];
+
+            socket.binaryType = "arraybuffer";
+            socket.addEventListener('open', (event) => {
+            });
+            var delay = 0;
+            socket.addEventListener('message', (event) => {
+                if (event.data instanceof ArrayBuffer) {
+                    let view = new Uint8Array(event.data);
+                    
+                    const view1 = new DataView(event.data);
+                    if (view[0] == 111) {
+                        if (view1.byteLength > 10) {
+                            var bytes = 1;
+                            
+                            while ( true ) {
+                                
+                                if ( bytes == view1.byteLength ) {
+                                    break;
+                                }
+                                cars.push({ 
+                                    x: -view1.getFloat32(bytes, true)+500, 
+                                    y: -view1.getFloat32(bytes + 4, true)+500, 
+                                    rotation: view1.getFloat32(bytes + 8, true), 
+                                    width: view1.getFloat32(bytes + 12, true)*20,
+                                    length: view1.getFloat32(bytes + 16, true)*20 
+                                });
+                                bytes += 20
+                            }
+                        }
+                        return;
+                    }
+                    if (view[0] == 101 && slipGraphSetts) {
+                        var offset = 1;
+                        var fl = view1.getFloat32(offset, true);
+                        offset += 4;
+                        var rl = view1.getFloat32(offset, true);
+                        offset += 4;
+
+                        chv[0] = view1.getFloat32(offset, true);
+                        offset += 4;
+                        chv[1] = view1.getFloat32(offset, true);
+
+                        offset += 4;
+                        //chv[2] = view1.getInt8(offset, true);
+
+                        
+
+
+                        data1.labels.push(new Date().toLocaleTimeString());
+                        data1.datasets[0].data.push(fl * canvas1.height);
+                        data1.datasets[1].data.push(rl * canvas1.height);
+                        data2.datasets[0].data.push(view1.getInt8(offset, true));
+                        
+                        // if (data.labels.length > canvas1.width / 1) {
+                        if (data1.labels.length > 300) {
+                            data1.labels.shift();
+                            data1.datasets.forEach(dataset => dataset.data.shift());
+                            data2.datasets.forEach(dataset => dataset.data.shift());
+                        }
+                        drawChartSlip();
+                        return;
+                    }
+                    if (view[0] == 1) {
+                        if (radarSetts) {
+                            var deltaHtml = view1.getFloat32(1, true).toFixed(3)
+                            if (deltaHtml > 0) {
+                                delta.style.color = `rgb(255,0,0)`;
+                            } else {
+                                delta.style.color = `rgb(0,255,0)`;
+                            }
+                            deltaHtml = deltaHtml == -1000 ? "-" : deltaHtml
+                            delta.innerHTML = deltaHtml;
+                            carMain.x = -view1.getFloat32(1 + 4, true)+500;
+                            carMain.y = -view1.getFloat32(1 + 8, true)+500;
+                            carMain.rotation = view1.getFloat32(1 + 12, true);
+                            carMain.width = view1.getFloat32(1 + 16, true)*20;
+                            carMain.length = view1.getFloat32(1 + 20, true)*20;
+
+                            var bytes = 21
+                            while ( true ) {
+                                if ( bytes + 4 == view1.byteLength ) {
+                                    break;
+                                }
+                                cars.push({ 
+                                    x: -view1.getFloat32(bytes + 4, true)+500, 
+                                    y: -view1.getFloat32(bytes + 8, true)+500, 
+                                    rotation: view1.getFloat32(bytes + 12, true), 
+                                    width: view1.getFloat32(bytes + 16, true)*20, 
+                                    length: view1.getFloat32(bytes + 20, true)*20 
+                                });
+                                bytes += 20
+                                
+                            }
+
+                            function calculateDistance(carMain, car2) {
+
+                                var dx = car2.x - carMain.x;
+                                var dy = car2.y - carMain.y;
+
+                                var distanceCenter = Math.sqrt(dx * dx + dy * dy);
+                                distanceCenter *=20;
+
+
+                                return distanceCenter;
+                            }
+
+                            function calculateSecondCarPosition(carMain, distance, angle) {
+                                const newX = carMain.x - distance * Math.cos(angle);
+                                const newY = carMain.y + distance * Math.sin(angle);
+
+                                return { x: newX, y: newY };
+                            }
+
+                            function calculateAngle(carMain, car2) {
+                                return Math.atan2(car2.y - carMain.y, car2.x - carMain.x);
+                            }
+                            var dist = 0;
+                            if ( cars.length > 0 )
+                            for (let i = 0; i < cars.length; i++) {
+                                        
+                                carMainTemp = { ...carMain };
+                                const angleBetweenCars = calculateAngle(carMainTemp, cars[i]);
+
+                                distance = calculateDistance(carMainTemp, cars[i]) 
+                                dist = distance
+                                var angle = angleBetweenCars;
+                                
+
+                                let equivalentAngle1 = ((angle * (180 / Math.PI)) + (carMainTemp.rotation * (180 / Math.PI)))  % 360;
+
+                                if (equivalentAngle1 < 0) {
+                                    equivalentAngle1 += 360;
+                                }
+                                angle = equivalentAngle1 - 180;
+                                angle = (angle * Math.PI) / 180
+                                carMainTemp.x = canvas.width / 2;
+                                carMainTemp.y = canvas.height / 2;
+                                
+                                var pso = calculateSecondCarPosition(carMainTemp, distance, angle);
+                                
+                                cars[i].x = pso.x;
+                                cars[i].y = pso.y;
+                                
+                                carMainTemp.rotation = carMainTemp.rotation * (180 / Math.PI);
+                                cars[i].rotation = cars[i].rotation * (180 / Math.PI);
+                                
+                                carMainTemp.rotation = 360 - carMainTemp.rotation;
+                                let sum = carMainTemp.rotation + cars[i].rotation;
+
+                                let equivalentAngle = sum % 360;
+
+                                if (equivalentAngle < 0) {
+                                    equivalentAngle += 360;
+                                }
+                                cars[i].rotation = equivalentAngle - 180;
+
+                                
+                                carMainTemp.rotation = (360 * Math.PI) / 180;
+                                cars[i].rotation = (cars[i].rotation * Math.PI) / 180;
+                            }
+
+                            
+                            carMain.x = canvas.width / 2;
+                            carMain.y = canvas.height / 2;
+                            carMain.rotation = (360 * Math.PI) / 180;
+                            printFrame();
+                            cars.length = 0;
+                        }
+                        return;
+                    }
+                    if (view[0] == 2) {
+                        if (wheelsSetts) {
+                            var offset = 1;
+                            flWear.innerHTML = (view1.getFloat32(offset, true)*100).toFixed(2);
+                            offset += 4;
+                            frWear.innerHTML = (view1.getFloat32(offset, true)*100).toFixed(2);
+                            offset += 4;
+                            rlWear.innerHTML = (view1.getFloat32(offset, true)*100).toFixed(2);
+                            offset += 4;
+                            rrWear.innerHTML = (view1.getFloat32(offset, true)*100).toFixed(2);
+                            offset += 4;
+                            
+                            flPressure.innerHTML = view1.getFloat32(offset, true).toFixed(1);
+                            offset += 4;
+                            frPressure.innerHTML = view1.getFloat32(offset, true).toFixed(1);
+                            offset += 4;
+                            rlPressure.innerHTML = view1.getFloat32(offset, true).toFixed(1);
+                            offset += 4;
+                            rrPressure.innerHTML = view1.getFloat32(offset, true).toFixed(1);
+                            offset += 4;
+                            
+                            flDirt.innerHTML = (view1.getFloat32(offset, true)*100).toFixed(3);
+                            offset += 4;
+                            frDirt.innerHTML = (view1.getFloat32(offset, true)*100).toFixed(3);
+                            offset += 4;
+                            rlDirt.innerHTML = (view1.getFloat32(offset, true)*100).toFixed(3);
+                            offset += 4;
+                            rrDirt.innerHTML = (view1.getFloat32(offset, true)*100).toFixed(3);
+                            offset += 4;
+                            
+                            var flBrakeTemp = view1.getFloat32(offset, true).toFixed(0);
+                            flBrake.innerHTML = flBrakeTemp;
+                            offset += 4;
+                            var brakeTempOptFl = view1.getFloat32(offset, true);
+                            offset += 4;
+                            var brakeTempCldFl = view1.getFloat32(offset, true);
+                            offset += 4;
+                            var brakeTempHotFl = view1.getFloat32(offset, true);
+                            offset += 4;
+                            flBrake.parentElement.parentElement.style.backgroundColor = getTemperatureColor(flBrakeTemp, brakeTempCldFl, brakeTempOptFl, brakeTempHotFl);
+                            
+                            var frBrakeTemp = view1.getFloat32(offset, true).toFixed(0);
+                            frBrake.innerHTML = frBrakeTemp;
+                            offset += 4;
+                            var brakeTempOptFr = view1.getFloat32(offset, true);
+                            offset += 4;
+                            var brakeTempCldFr = view1.getFloat32(offset, true);
+                            offset += 4;
+                            var brakeTempHotFr = view1.getFloat32(offset, true);
+                            offset += 4;
+                            frBrake.parentElement.parentElement.style.backgroundColor = getTemperatureColor(frBrakeTemp, brakeTempCldFr, brakeTempOptFr, brakeTempHotFr);
+                            
+                            var rlBrakeTemp = view1.getFloat32(offset, true).toFixed(0);
+                            rlBrake.innerHTML = rlBrakeTemp;
+                            offset += 4;
+                            var brakeTempOptRl = view1.getFloat32(offset, true);
+                            offset += 4;
+                            var brakeTempCldRl = view1.getFloat32(offset, true);
+                            offset += 4;
+                            var brakeTempHotRl = view1.getFloat32(offset, true);
+                            offset += 4;
+                            rlBrake.parentElement.parentElement.style.backgroundColor = getTemperatureColor(rlBrakeTemp, brakeTempCldRl, brakeTempOptRl, brakeTempHotRl);
+                            
+                            var rrBrakeTemp = view1.getFloat32(offset, true).toFixed(0);
+                            rrBrake.innerHTML = rrBrakeTemp;
+                            offset += 4;
+                            var brakeTempOptRr = view1.getFloat32(offset, true);
+                            offset += 4;
+                            var brakeTempCldRr = view1.getFloat32(offset, true);
+                            offset += 4;
+                            var brakeTempHotRr = view1.getFloat32(offset, true);
+                            offset += 4;
+                            rrBrake.parentElement.parentElement.style.backgroundColor = getTemperatureColor(rrBrakeTemp, brakeTempCldRr, brakeTempOptRr, brakeTempHotRr);
+                        }
+                        return;
+                    }
+                    if (view[0] == 3) {
+                        var offset = 1;
+
+                        var flTemp1Temp = view1.getFloat32(offset, true).toFixed(0);
+                        flTemp1.innerHTML = flTemp1Temp;
+                        offset += 4;
+                        var flTemp2Temp = view1.getFloat32(offset, true).toFixed(0);
+                        flTemp2.innerHTML = flTemp2Temp;
+                        offset += 4;
+                        var flTemp3Temp = view1.getFloat32(offset, true).toFixed(0);
+                        flTemp3.innerHTML = flTemp3Temp;
+                        offset += 4;
+                        var tireTempOptFl = view1.getFloat32(offset, true);
+                        offset += 4;
+                        var tireTempCldFl = view1.getFloat32(offset, true);
+                        offset += 4;
+                        var tireTempHotFl = view1.getFloat32(offset, true);
+                        offset += 4;
+                        flTemp1.parentElement.parentElement.style.backgroundColor = getTemperatureColor(flTemp1Temp, tireTempCldFl, tireTempOptFl, tireTempHotFl);
+                        flTemp2.parentElement.parentElement.style.backgroundColor = getTemperatureColor(flTemp2Temp, tireTempCldFl, tireTempOptFl, tireTempHotFl);
+                        flTemp3.parentElement.parentElement.style.backgroundColor = getTemperatureColor(flTemp3Temp, tireTempCldFl, tireTempOptFl, tireTempHotFl);
+                        
+                        var frTemp1Temp = view1.getFloat32(offset, true).toFixed(0);
+                        frTemp1.innerHTML = frTemp1Temp;
+                        offset += 4;
+                        var frTemp2Temp = view1.getFloat32(offset, true).toFixed(0);
+                        frTemp2.innerHTML = frTemp2Temp;
+                        offset += 4;
+                        var frTemp3Temp = view1.getFloat32(offset, true).toFixed(0);
+                        frTemp3.innerHTML = frTemp3Temp;
+                        offset += 4;
+                        var tireTempOptFr = view1.getFloat32(offset, true);
+                        offset += 4;
+                        var tireTempCldFr = view1.getFloat32(offset, true);
+                        offset += 4;
+                        var tireTempHotFr = view1.getFloat32(offset, true);
+                        offset += 4;
+                        frTemp1.parentElement.parentElement.style.backgroundColor = getTemperatureColor(frTemp1Temp, tireTempCldFr, tireTempOptFr, tireTempHotFr);
+                        frTemp2.parentElement.parentElement.style.backgroundColor = getTemperatureColor(frTemp2Temp, tireTempCldFr, tireTempOptFr, tireTempHotFr);
+                        frTemp3.parentElement.parentElement.style.backgroundColor = getTemperatureColor(frTemp3Temp, tireTempCldFr, tireTempOptFr, tireTempHotFr);
+                        
+                        var rlTemp1Temp = view1.getFloat32(offset, true).toFixed(0);
+                        rlTemp1.innerHTML = rlTemp1Temp;
+                        offset += 4;
+                        var rlTemp2Temp = view1.getFloat32(offset, true).toFixed(0);
+                        rlTemp2.innerHTML = rlTemp2Temp;
+                        offset += 4;
+                        var rlTemp3Temp = view1.getFloat32(offset, true).toFixed(0);
+                        rlTemp3.innerHTML = rlTemp3Temp;
+                        offset += 4;
+                        var tireTempOptRl = view1.getFloat32(offset, true);
+                        offset += 4;
+                        var tireTempCldRl = view1.getFloat32(offset, true);
+                        offset += 4;
+                        var tireTempHotFRl = view1.getFloat32(offset, true);
+                        offset += 4;
+                        rlTemp1.parentElement.parentElement.style.backgroundColor = getTemperatureColor(rlTemp1Temp, tireTempCldRl, tireTempOptRl, tireTempHotFRl);
+                        rlTemp2.parentElement.parentElement.style.backgroundColor = getTemperatureColor(rlTemp2Temp, tireTempCldRl, tireTempOptRl, tireTempHotFRl);
+                        rlTemp3.parentElement.parentElement.style.backgroundColor = getTemperatureColor(rlTemp3Temp, tireTempCldRl, tireTempOptRl, tireTempHotFRl);
+                        
+                        var rrTemp1Temp = view1.getFloat32(offset, true).toFixed(0);
+                        rrTemp1.innerHTML = rrTemp1Temp;
+                        offset += 4;
+                        var rrTemp2Temp = view1.getFloat32(offset, true).toFixed(0);
+                        rrTemp2.innerHTML = rrTemp2Temp;
+                        offset += 4;
+                        var rrTemp3Temp = view1.getFloat32(offset, true).toFixed(0);
+                        rrTemp3.innerHTML = rrTemp3Temp;
+                        offset += 4;
+                        var tireTempOptRr = view1.getFloat32(offset, true);
+                        offset += 4;
+                        var tireTempCldRr = view1.getFloat32(offset, true);
+                        offset += 4;
+                        var tireTempHotFRr = view1.getFloat32(offset, true);
+                        offset += 4;
+                        rrTemp1.parentElement.parentElement.style.backgroundColor = getTemperatureColor(rrTemp1Temp, tireTempCldRr, tireTempOptRr, tireTempHotFRr);
+                        rrTemp2.parentElement.parentElement.style.backgroundColor = getTemperatureColor(rrTemp2Temp, tireTempCldRr, tireTempOptRr, tireTempHotFRr);
+                        rrTemp3.parentElement.parentElement.style.backgroundColor = getTemperatureColor(rrTemp3Temp, tireTempCldRr, tireTempOptRr, tireTempHotFRr);
+                        
+                        return;
+                    }
+                    if ( view[0] == 4 && relativeTableSetts) {
+                        var ratrep;
+                        var offset  = 1;
+                        var fuelLeft = view1.getFloat32(offset, true);
+                        offset += 4;
+                        fuelMonitorTds[5].innerHTML = fuelLeft.toFixed(2);
+                        var fuelForRace = view1.getFloat32(offset, true);
+                        offset += 4;
+                        fuelMonitorTds[4].innerHTML = fuelForRace;
+
+                        // console.log(view1.getInt32(offset, true));
+                        // console.log(loadedRat);
+                        // console.log(loadedRat);
+                        
+                        try {
+                            relativeTds[5][1].innerHTML = loadedRat[view1.getInt32(offset, true)].Fullname;
+                            ratrep = loadedRat[view1.getInt32(offset, true)].Rating + "/" + loadedRat[view1.getInt32(offset, true)].Reputation;
+                            offset += 4;
+                            relativeTds[5][0].innerHTML = view1.getInt32(offset, true);
+                            offset += 4;
+                            relativeTds[5][2].innerHTML = ratrep;
+                            
+                            if ( view1.getInt8(offset, true) == 1 && relativeTds[5][3].style.currentBgColor != '#656565') {
+                                relativeTds[5][0].style.backgroundColor = '#656565';
+                            } else
+                            if ( relativeTds[5][0].style.currentBgColor != '#db5555') {
+                                relativeTds[5][0].style.backgroundColor = '#db5555';
+                            }
+                            offset += 1;
+
+                            for (let index = 4; index > -1; index--) {
+                                    
+                                if ( view1.byteLength > offset && view1.getInt32(offset, true) != 0 ) {
+                                    relativeTds[index][1].innerHTML = loadedRat[view1.getInt32(offset, true)].Fullname;
+                                    ratrep = loadedRat[view1.getInt32(offset, true)].Rating + "/" + loadedRat[view1.getInt32(offset, true)].Reputation;
+                                    offset += 4;
+                                    relativeTds[index][0].innerHTML = view1.getInt8(offset, true);
+                                    offset += 1;
+                                    relativeTds[index][2].innerHTML = ratrep;
+                                    // relativeTds[index][3].innerHTML = view1.getInt8(offset, true)//float16ToFloat32(view1.getUint16(offset, true)).toFixed(3)//float16ToFloat32(view1.getUint16(offset, true))>-999&&float16ToFloat32(view1.getUint16(offset, true))<999?float16ToFloat32(view1.getUint16(offset, true)).toFixed(3):(float16ToFloat32(view1.getUint16(offset, true))/1000).toFixed(0);
+                                    // offset += 1;
+                                    
+                                    relativeTds[index][3].innerHTML = float16ToFloat32(view1.getUint16(offset, true)).toFixed(3)//float16ToFloat32(view1.getUint16(offset, true))>-999&&float16ToFloat32(view1.getUint16(offset, true))<999?float16ToFloat32(view1.getUint16(offset, true)).toFixed(3):(float16ToFloat32(view1.getUint16(offset, true))/1000).toFixed(0);
+                                    offset += 2;
+                                    
+                                    
+                                    if ( view1.getInt8(offset, true) == -1 && relativeTds[index][1].style.backgroundColor != '#656565') {
+                                        relativeTds[index][1].style.backgroundColor = '#656565';
+                                    }else
+                                    if ( (view1.getInt8(offset, true) == 0 || view1.getInt8(offset, true) == 1 || view1.getInt8(offset, true) == 2) && relativeTds[index][1].style.backgroundColor != '#db5555' ) {
+                                        relativeTds[index][1].style.backgroundColor = '#db5555';
+                                    }else
+                                    if ( view1.getInt8(offset, true) == 4 && relativeTds[index][1].style.backgroundColor != '#f7e372' ) {
+                                        relativeTds[index][1].style.backgroundColor = '#f7e372';
+                                    }else
+                                    if ( view1.getInt8(offset, true) == 5 && relativeTds[index][1].style.backgroundColor != '#000' ) {
+                                        relativeTds[index][1].style.backgroundColor = '#000';
+                                    }
+                                    offset += 1;
+
+                                    var value = view1.getInt8(offset, true);
+                                    var currentBgColor = relativeTds[index][3].style.background;
+                                    
+                                    if ( value == 0 && currentBgColor != '#656565') {
+                                        relativeTds[index][3].style.background = ''
+                                        relativeTds[index][3].style.backgroundColor = '#656565';
+                                    } else
+                                    if ( value < 0 && currentBgColor != '#0E4FDD') {
+                                        relativeTds[index][3].style.background = ''
+                                        relativeTds[index][3].style.backgroundColor = '#0E4FDD';
+                                    } else
+                                    if ( value > 0 && currentBgColor != 'linear-gradient(to bottom, #0D802F 70%, #0E4FDD)') {
+                                        relativeTds[index][3].style.backgroundColor = '';
+                                        relativeTds[index][3].style.background = 'linear-gradient(to bottom, #0D802F 70%, #0E4FDD)';
+                                    }
+                                    offset += 1;
+                                    
+                                    if ( view1.getInt8(offset, true) == 1 && relativeTds[index][3].style.currentBgColor != '#656565') {
+                                        relativeTds[index][0].style.backgroundColor = '#656565';
+                                    } else
+                                    if ( relativeTds[index][0].style.currentBgColor != '#db5555') {
+                                        relativeTds[index][0].style.backgroundColor = '#db5555';
+                                    }
+                                    offset += 1;
+                                } else {
+                                    relativeTds[index][0].innerHTML = '';
+                                    relativeTds[index][1].innerHTML = '';
+                                    relativeTds[index][2].innerHTML = '';
+                                    relativeTds[index][3].innerHTML = '';
+                                    offset += 10;
+                                }
+
+                            }
+                            
+                            for (let index = 6; index < 11; index++) {
+                                // console.log(offset)
+                                // console.log(view1.getInt32(offset, true))
+                                // console.log(view1.getInt8(offset, true))
+                                // console.log(view1.getInt8(offset+1, true))
+                                // console.log(view1.getInt8(offset+2, true))
+                                // console.log(view1.getInt8(offset+3, true))
+                                // console.log(view1.getInt32(offset, true))
+                                if ( view1.byteLength > offset && view1.getInt32(offset, true) != 0 ) {
+                                    relativeTds[index][1].innerHTML = loadedRat[view1.getInt32(offset, true)].Fullname;
+                                    ratrep = loadedRat[view1.getInt32(offset, true)].Rating + "/" + loadedRat[view1.getInt32(offset, true)].Reputation;
+                                    offset += 4;
+                                    relativeTds[index][0].innerHTML = view1.getInt8(offset, true);
+                                    offset += 1;
+                                    relativeTds[index][2].innerHTML = ratrep;
+                                    // relativeTds[index][3].innerHTML = view1.getInt8(offset, true)//float16ToFloat32(view1.getUint16(offset, true)).toFixed(3)//float16ToFloat32(view1.getUint16(offset, true))>-999&&float16ToFloat32(view1.getUint16(offset, true))<999?float16ToFloat32(view1.getUint16(offset, true)).toFixed(3):(float16ToFloat32(view1.getUint16(offset, true))/1000).toFixed(0);
+                                    // offset += 1;
+                                    relativeTds[index][3].innerHTML = float16ToFloat32(view1.getUint16(offset, true)).toFixed(3)//float16ToFloat32(view1.getUint16(offset, true))>-999&&float16ToFloat32(view1.getUint16(offset, true))<999?float16ToFloat32(view1.getUint16(offset, true)).toFixed(3):(float16ToFloat32(view1.getUint16(offset, true))/1000).toFixed(0);
+                                    offset += 2;
+
+                                    if ( view1.getInt8(offset, true) == -1 && relativeTds[index][1].style.backgroundColor != '#656565') {
+                                        relativeTds[index][1].style.backgroundColor = '#656565';
+                                    }else
+                                    if ( (view1.getInt8(offset, true) == 0 || view1.getInt8(offset, true) == 1 || view1.getInt8(offset, true) == 2) && relativeTds[index][1].style.backgroundColor != '#db5555' ) {
+                                        relativeTds[index][1].style.backgroundColor = '#db5555';
+                                    }else
+                                    if ( view1.getInt8(offset, true) == 4 && relativeTds[index][1].style.backgroundColor != '#f7e372' ) {
+                                        relativeTds[index][1].style.backgroundColor = '#f7e372';
+                                    }else
+                                    if ( view1.getInt8(offset, true) == 5 && relativeTds[index][1].style.backgroundColor != '#000' ) {
+                                        relativeTds[index][1].style.backgroundColor = '#000';
+                                    }
+                                    offset += 1;
+
+                                    var value = view1.getInt8(offset, true);
+                                    var currentBgColor = relativeTds[index][3].style.background;
+                                    
+                                    if ( value == 0 && currentBgColor != '#656565') {
+                                        relativeTds[index][3].style.background = ''
+                                        relativeTds[index][3].style.backgroundColor = '#656565';
+                                    } else
+                                    if ( value < 0 && currentBgColor != '#0E4FDD') {
+                                        relativeTds[index][3].style.background = ''
+                                        relativeTds[index][3].style.backgroundColor = '#0E4FDD';
+                                    } else
+                                    if ( value > 0 && currentBgColor != 'linear-gradient(to bottom, #0D802F 70%, #0E4FDD)') {
+                                        relativeTds[index][3].style.backgroundColor = '';
+                                        relativeTds[index][3].style.background = 'linear-gradient(to bottom, #0D802F 70%, #0E4FDD)';
+                                    }
+                                    offset += 1;
+
+                                    
+                                    if ( view1.getInt8(offset, true) == 1 && relativeTds[index][3].style.currentBgColor != '#656565') {
+                                        relativeTds[index][0].style.backgroundColor = '#656565';
+                                    } else
+                                    if ( relativeTds[index][0].style.currentBgColor != '#db5555') {
+                                        relativeTds[index][0].style.backgroundColor = '#db5555';
+                                    }
+                                    offset += 1;
+                                } else {
+                                    relativeTds[index][0].innerHTML = '';
+                                    relativeTds[index][1].innerHTML = '';
+                                    relativeTds[index][2].innerHTML = '';
+                                    relativeTds[index][3].innerHTML = '';
+                                    offset += 10;
+                                }
+                            }
+                        } catch (err) {console.log(err)}
+                        return;
+                    }
+                    if ( view[0] == 5) {
+                        let decoder = new TextDecoder('utf-8');
+                        let str = decoder.decode(new DataView(event.data, 1, view1.byteLength-2));
+                        let arr = str.split(',');
+
+                        let obj = {
+                            "UserId": arr[0],
+                            "Fullname" : arr[1],
+                            "Rating": arr[2],
+                            "Reputation": arr[3]
+                        };
+
+                        loadedRat[arr[0]] = obj;
+
+                        return;
+                    }
+                    if ( view[0] == 6 ) {
+                        var offset = 1;
+                        var lastLapHtml = view1.getFloat32(offset, true);
+                        if (lastLapHtml == 9999) {
+                            lastLap.innerHTML = "-:--.---";
+                        } else {
+                            var res = Math.floor(lastLapHtml / 60);
+                            if ( res >= 1 ) {
+                                lastLap.innerHTML = res+":"+(lastLapHtml - 60 * res).toFixed(3).padStart(6, '0');
+                            } else {
+                                lastLap.innerHTML = lastLapHtml.toFixed(3).padStart(6, '0');
+                            }
+                        }
+                        
+                        if ( view1.byteLength < 6 ) {
+                            return;
+                        }
+                        offset += 4;
+                        
+                        var bestLapHtml= view1.getFloat32(offset, true);
+                        if (bestLapHtml == 9999/* || bestLapHtml == -1 */) {
+                            bestLap.innerHTML = "-:--.---";
+                        } else {
+                            var res = Math.floor(bestLapHtml / 60);
+                            if ( res >= 1 ) {
+                                bestLap.innerHTML = res+":"+(bestLapHtml - 60 * res).toFixed(3).padStart(6, '0');
+                            } else {
+                                bestLap.innerHTML = bestLapHtml.toFixed(3).padStart(6, '0');
+                            }
+                        }
+                        offset += 4;
+                        
+                        var bestLapLeadHtml = view1.getFloat32(offset, true);
+                        
+                        if (bestLapLeadHtml == 9999) {
+                            bestLapLead.innerHTML = "-:--.---";
+                        } else {
+                            var res = Math.floor(bestLapLeadHtml / 60);
+                            if ( res >= 1 ) {
+                                bestLapLead.innerHTML = res+":"+(bestLapLeadHtml - 60 * res).toFixed(3).padStart(6, '0');
+                            } else {
+                                bestLapLead.innerHTML = bestLapLeadHtml.toFixed(3).padStart(6, '0');
+                            }
+                        }
+                        
+                        if ( view1.byteLength < 14 ) {
+                            return;
+                        }
+                        offset += 4;
+
+                        var timeHtml = view1.getFloat32(offset, true);
+                        if (timeHtml == 9999) {
+                            fuelMonitorTds[3].innerHTML = "-:--.---";
+                        } else {
+                            var res = Math.floor(timeHtml / 60);
+                            if ( res >= 1 ) {
+                                fuelMonitorTds[3].innerHTML = res+":"+(timeHtml - 60 * res).toFixed(3).padStart(6, '0');
+                            } else {
+                                fuelMonitorTds[3].innerHTML = timeHtml.toFixed(3).padStart(6, '0');
+                            }
+                        }
+                        
+                        if ( view1.byteLength < 16 ) {
+                            return;
+                        }
+                        offset += 4;
+                        
+                        var fuelHtml = view1.getFloat32(offset, true);
+                        fuelHtml = fuelHtml == 9999 ? "-" : fuelHtml.toFixed(2);
+                        fuelMonitorTds[2].innerHTML = fuelHtml;
+                        offset += 4;
+
+                        return;
+                    }
+                    if ( view[0] == 7 ) {
+                        startLight.classList.remove('hide');
+                        switch (view1.getUint32(1, true)) {
+                            case 0:
+                            break;
+                            case 1:
+                                startLightDivs[0].classList.remove('off');
+                                startLightDivs[0].classList.add('red');
+                            break;
+                            case 2:
+                                startLightDivs[1].classList.remove('off');
+                                startLightDivs[1].classList.add('red');
+                            break;
+                            case 3:
+                                startLightDivs[2].classList.remove('off');
+                                startLightDivs[2].classList.add('red');
+                            break;
+                            case 4:
+                                startLightDivs[3].classList.remove('off');
+                                startLightDivs[3].classList.add('red');
+                            break;
+                            case 5:
+                                startLightDivs[4].classList.remove('off');
+                                startLightDivs[4].classList.add('red');
+                            break;
+                            case 6:
+                                startLightDivs[0].classList.add('off');
+                                startLightDivs[0].classList.remove('red');
+                                startLightDivs[1].classList.add('off');
+                                startLightDivs[1].classList.remove('red');
+                                startLightDivs[2].classList.add('off');
+                                startLightDivs[2].classList.remove('red');
+                                startLightDivs[3].classList.add('off');
+                                startLightDivs[3].classList.remove('red');
+                                startLightDivs[4].classList.add('off');
+                                startLightDivs[4].classList.remove('red');
+                                startLightDivs[5].classList.add('green');
+                                startLightDivs[5].classList.remove('off');
+                                setTimeout(function() {
+                                    startLight.classList.add('hide');
+                                }, 3000);
+                            break;
+                        }
+                        return;
+                    }
+                    if ( view[0] == 8 ) {
+                        let id = view1.getUint32(1, true);
+                        setTimeout(function() {
+                            try {
+                                let xhr = new XMLHttpRequest();
+                                xhr.open("GET", 'https://game.raceroom.com/multiplayer-rating/user/'+id+'.json', true);
+                                xhr.onreadystatechange = function () {
+                                    if (xhr.readyState == 4) {
+                                        if (xhr.status == 200) {
+                                            let jsn = JSON.parse(xhr.responseText);
+                                            jsn.Rating = Math.floor(jsn.Rating);
+                                            jsn.Reputation = Math.floor(jsn.Reputation);
+                                            
+                                            let parts = jsn.Fullname.split(' ');
+                                            if (parts.length > 1) {
+                                                jsn.Fullname = parts[0].charAt(0) + '. ';// + parts[1];
+                                                for (let index = 1; index < parts.length; index++) {
+                                                    jsn.Fullname += parts[index];
+                                                }
+                                            }
+                                            jsn.Fullname = jsn.Fullname.substring(0, 15);
+                                            let resultRat = "1"+jsn.UserId+","+jsn.Fullname+","+jsn.Rating+","+jsn.Reputation;
+                                            loadedRat[jsn.UserId] = {
+                                                "UserId" : jsn.UserId,
+                                                "Fullname" : jsn.Fullname,
+                                                "Rating" : jsn.Rating,
+                                                "Reputation" : jsn.Reputation,
+                                            };
+                                            socket.send(resultRat);
+                                        } else 
+                                        if (xhr.status == 404) {
+                                            
+                                            loadedRat[id] = {
+                                                "UserId" : id,
+                                                "Fullname" : "None",
+                                                "Rating" : 0,
+                                                "Reputation" : 0,
+                                            };
+                                            let resultRat = "1"+id+",None,0,0";
+                                            socket.send(resultRat);
+                                        }  else 
+                                        if (xhr.status == 0) {
+                                            
+                                            loadedRat[id] = {
+                                                "UserId" : id,
+                                                "Fullname" : "None",
+                                                "Rating" : 0,
+                                                "Reputation" : 0,
+                                            };
+                                            let resultRat = "1"+id+",None,0,0";
+                                            socket.send(resultRat);
+                                        } else {
+                                            loadedRat[id] = {
+                                                "UserId" : id,
+                                                "Fullname" : "None",
+                                                "Rating" : 0,
+                                                "Reputation" : 0,
+                                            };
+                                        }
+                                    }
+                                }
+                                xhr.send();
+                            } catch (err) {
+                                // loadedRat[id] = {
+                                //     "UserId" : id,
+                                //     "Fullname" : "None",
+                                //     "Rating" : 0,
+                                //     "Reputation" : 0,
+                                // };
+                                // let resultRat = "1"+id+",None,0,0";
+                                // socket.send(resultRat);
+                            }
+                        }, delay);
+                        delay += 100;
+                        return;
+                    }
+                    if (view[0] == 9) {
+                        const dataView = new DataView(event.data);
+                        if ( view1.byteLength < 10 ) {
+                            document.querySelector("body").classList.remove('hide');
+                            addSettingsListeners();
+                        } else {
+                            var ofst = 0;
+                            var w,h = 0;
+                            var count = 0;
+                            document.querySelectorAll("#resizable-table").forEach(function (element) {
+                                if (count > 12)
+                                    return;
+                                try {
+                                    var style = "";
+                                    style += "left: "+view1.getInt16(1 + ofst, true)+"px; ";
+                                    ofst += 2
+                                    style += "top: "+view1.getInt16(1 + ofst, true)+"px; ";
+                                    ofst += 2
+                                    var d = view1.getInt16(1 + ofst, true);
+                                    ofst += 2
+                                    var f = (view1.getInt16(1 + ofst, true) / 100).toString();
+
+
+                                    ofst += 2
+                                    element.firstElementChild.style.cssText = "transform: scale("+d+"."+f.split('.')[1]+");"
+                                    element.style.cssText = style;
+                                } catch (exp) {
+
+                                }
+                                count++;
+                            });
+                            document.querySelector("body").classList.remove('hide');
+                        }
+                        return;
+                    }
+                    if (view[0] == 99) {
+                        const dataView = new DataView(event.data);
+                        var ofst = 0;
+                        var w,h = 0;
+                        var count = 0;
+                        document.querySelectorAll("#resizable-table").forEach(function (element) {
+                            count++;
+                            if (count > 12){
+                                try {
+                                    var style = "";
+                                    style += "left: "+view1.getInt16(1 + ofst, true)+"px; ";
+                                    ofst += 2
+                                    style += "top: "+view1.getInt16(1 + ofst, true)+"px; ";
+                                    ofst += 2
+                                    var d = view1.getInt16(1 + ofst, true);
+                                    ofst += 2
+                                    var f = (view1.getInt16(1 + ofst, true) / 100).toString();
+                                    ofst += 2
+                                    element.firstElementChild.style.cssText = "transform: scale("+d+"."+f.split('.')[1]+");"
+                                    element.style.cssText = style;
+                                } catch (exp) {
+
+                                }
+                            }
+                        });
+                        restoreHiddenState()
+                        return;
+                    }
+                    if (view[0] == 10) {
+                        var offset = 1;
+                        var inputThrottle = (view1.getFloat32(offset, true)*100).toFixed(2);
+                        var inputThrottleGraph = view1.getFloat32(offset, true);
+                        offset += 4;
+                        var inputBrake = (view1.getFloat32(offset, true)*100).toFixed(2);
+                        var inputBrakeGraph = view1.getFloat32(offset, true);
+                        offset += 4;
+
+                        var inputThrottleRaw = view1.getFloat32(offset, true)*100;
+                        var inputThrottleRawGraph = view1.getFloat32(offset, true);
+                        offset += 4;
+                        var inputBrakeRaw = view1.getFloat32(offset, true)*100;
+                        offset += 4;
+                        var inputSteerRaw = (view1.getFloat32(offset, true) + 1) / 2;
+
+                        offset += 4;
+                        var absFl = view1.getFloat32(offset, true);
+                        offset += 4;
+                        var absFr = view1.getFloat32(offset, true);
+                        offset += 4;
+                        var absRl = view1.getFloat32(offset, true);
+                        offset += 4;
+                        var absRr = view1.getFloat32(offset, true);
+
+
+                        offset += 4;
+                        var gripFl = view1.getFloat32(offset, true) * 100;
+                        offset += 4;
+                        var gripFr = view1.getFloat32(offset, true) * 100;
+                        offset += 4;
+                        var gripRl = view1.getFloat32(offset, true) * 100;
+                        offset += 4;
+                        var gripRr = view1.getFloat32(offset, true) * 100;
+                        
+                        // inputsTds[0].innerHTML = absFl;
+                        // inputsTds[1].innerHTML = absFr;
+                        // inputsTds[2].innerHTML = absRl;
+                        // inputsTds[3].innerHTML = absRr;
+                        inputsTds[0].innerHTML = inputThrottle;
+                        inputsTds[1].innerHTML = inputBrake;
+                        inputsTds[2].innerHTML = inputThrottleRaw < 1 && inputThrottleRaw > 0 ? 1 : inputThrottleRaw.toFixed(1);
+                        inputsTds[3].innerHTML = inputBrakeRaw < 1 && inputBrakeRaw > 0 ? 1 : inputBrakeRaw.toFixed(1);
+                        
+                        dataAbs[0][0][0].push(absFl);
+                        if (dataAbs[0][0][0].length > maxPoints) {
+                            dataAbs[0][0][0].shift();
+                        }
+                        dataAbs[0][1][0].push(absFr);
+                        if (dataAbs[0][1][0].length > maxPoints) {
+                            dataAbs[0][1][0].shift();
+                        }
+                        dataAbs[1][0][0].push(absRl);
+                        if (dataAbs[1][0][0].length > maxPoints) {
+                            dataAbs[1][0][0].shift();
+                        }
+                        dataAbs[1][1][0].push(absRr);
+                        if (dataAbs[1][1][0].length > maxPoints) {
+                            dataAbs[1][1][0].shift();
+                        }
+
+                        
+                        dataAbs[0][0][1].push(gripFl);
+                        if (dataAbs[0][0][1].length > maxPoints) {
+                            dataAbs[0][0][1].shift();
+                        }
+                        dataAbs[0][1][1].push(gripFr);
+                        if (dataAbs[0][1][1].length > maxPoints) {
+                            dataAbs[0][1][1].shift();
+                        }
+                        dataAbs[1][0][1].push(gripRl);
+                        if (dataAbs[1][0][1].length > maxPoints) {
+                            dataAbs[1][0][1].shift();
+                        }
+                        dataAbs[1][1][1].push(gripRr);
+                        if (dataAbs[1][1][1].length > maxPoints) {
+                            dataAbs[1][1][1].shift();
+                        }
+                        // for (let i = 0; i < gridSize; i++) {
+                        //     for (let j = 0; j < gridSize; j++) {
+                        //         // Simulating new percentage data (You can replace this with your real data)
+                        //         const newPercentage = Math.random() * 100;
+                        //         data[i][j].push(newPercentage);
+
+                        //         // Remove the oldest data point if it exceeds the max points
+                        //         if (data[i][j].length > maxPoints) {
+                        //             data[i][j].shift();
+                        //         }
+                        //     }
+                        // }
+
+                        data.labels.push(new Date().toLocaleTimeString());
+                        data.datasets[0].data.push(inputBrakeGraph * canvas1.height);
+                        data.datasets[1].data.push(inputThrottleGraph * canvas1.height);
+                        data.datasets[2].data.push(inputThrottleRawGraph * canvas1.height);
+                        data.datasets[3].data.push(inputSteerRaw * canvas1.height);
+                        
+                        // if (data.labels.length > canvas1.width / 1) {
+                        if (data.labels.length > 300) {
+                            data.labels.shift();
+                            data.datasets.forEach(dataset => dataset.data.shift());
+                        }
+                        if (absgripGraphSetts)
+                            animate();
+                        
+                        if (inputGraphSetts)
+                            drawChart();
+                        return;
+                    }
+                    if (view[0] == 11) {
+                        ofst = 1;
+                        if ( view1.getInt8(ofst, true) == 0 ) {
+                            ofst += 1;
+                            raceLaps.innerHTML = view1.getInt32(ofst, true);
+                            ofst += 4;
+                            var lastLapHtml = view1.getFloat32(ofst, true);
+                            ofst += 4;
+                            
+                            var res = Math.floor(lastLapHtml / 60);
+                            if ( res >= 1 ) {
+                                raceTime.innerHTML = (res+"").padStart(2, '0')+":"+(Math.floor(lastLapHtml - 60 * res)).toFixed(0).padStart(2, '0');
+                            } else {
+                                raceTime.innerHTML = sec.toFixed(0);
+                            }
+                            if ( flagStatusYellow != view1.getInt32(ofst, true) ) {
+                                flagStatusYellow = view1.getInt32(ofst, true)
+                                if ( view1.getInt32(ofst, true) == 1) {
+                                    standingsFlag.classList.remove('splitGreen');
+                                    standingsFlag.classList.add('splitYellow');
+                                } else {
+                                    standingsFlag.classList.remove('splitYellow');
+                                    standingsFlag.classList.add('splitGreen');
+                                }
+                            }
+                            ofst += 4;
+
+                        } else {
+                            var lel = view1.getInt8(ofst, true);
+                            ofst += 1;
+                            try {
+                                var pos = view1.getInt32(ofst, true);
+
+                                ofst += 4;
+                                var drvrName = view1.getUTF16String(ofst, 64);
+
+                                let parts = drvrName.split(' ');
+                                if (parts.length > 1) {
+                                    drvrName = parts[0].charAt(0) + '. ' + parts[1] + (parts[2]?' '+parts[2]:'');
+                                }
+                                driverBlocks[pos].children[0].children[2].innerHTML = drvrName;
+                                ofst += 64;
+                                if ( pos != 0 ) {
+                                    driverBlocks[pos].children[0].children[5].innerHTML = (view1.getFloat32(ofst, true) > 0 ?"+" : "") + view1.getFloat32(ofst, true).toFixed(3);
+                                } else {
+                                    var timeHtml = view1.getFloat32(ofst, true);
+                                    if (timeHtml == -1) {
+                                        driverBlocks[pos].children[0].children[5].innerHTML = "-:--.---";
+                                    } else {
+                                        var res = Math.floor(timeHtml / 60);
+                                        if ( res >= 1 ) {
+                                            driverBlocks[pos].children[0].children[5].innerHTML = res+":"+(timeHtml - 60 * res).toFixed(3).padStart(6, '0');
+                                        } else {
+                                            driverBlocks[pos].children[0].children[5].innerHTML = timeHtml.toFixed(3).padStart(6, '0');
+                                        }
+                                    }
+                                    //driverBlocks[pos].children[0].children[5].innerHTML = "+" + view1.getFloat32(ofst, true).toFixed(3);
+                                }
+                                ofst += 4;
+                                driverBlocks[pos].children[0].children[4].innerHTML = view1.getUint16(ofst, true);
+                                ofst += 2;
+                                if ( view1.getUint8(offset, true) ) {
+                                    driverBlocks[pos].children[0].children[3].classList.remove('vericalSeparatorRed');
+                                    driverBlocks[pos].children[0].children[3].classList.add('vericalSeparatorGreen');
+                                } else {
+                                    driverBlocks[pos].children[0].children[3].classList.remove('vericalSeparatorGreen');
+                                    driverBlocks[pos].children[0].children[3].classList.add('vericalSeparatorRed');
+                                }
+                                ofst +=1;
+                            } catch (e) {console.log(e)}
+                            
+                        }
+                        return;
+                    }
+                    if (view[0] == 12) {
+                        var table = document.getElementById("porscheTable");
+                        var lastChild = table.lastElementChild;
+                        var driverBlock = document.getElementById("driverBlock");
+
+                        var iii = 1;
+                        for ( var i = 0; i < view1.getInt32(1, true) - 1; i++ ) {
+                            let copy = driverBlock.cloneNode(true);
+                            copy.children[0].children[0].innerHTML = i + 2;
+                            copy.style.setProperty('--i', i + 1);
+                            //table.appendChild(copy);
+                            table.insertBefore(copy, lastChild);
+                            iii = i + 1;
+                        }
+                        document.querySelector("#pImg").style.setProperty('--i', i + 1);
+                        driverBlocks = document.querySelectorAll(".driverBlock");
+                        return;
+                    }
+                    if (view[0] == 13) {
+                        
+                        var ofst = 1;
+                        lastLapSetts = view1.getInt32(ofst, true);
+                        ofst += 4;
+                        bestLapSetts = view1.getInt32(ofst, true);
+                        ofst += 4;
+                        bestLapLeadSetts = view1.getInt32(ofst, true);
+                        ofst += 4;
+                        deltaSetts = view1.getInt32(ofst, true);
+                        ofst += 4;
+                        radarSetts = view1.getInt32(ofst, true);
+                        ofst += 4;
+                        allTimeBestTableSetts = view1.getInt32(ofst, true);
+                        ofst += 4;
+                        relativeTableSetts = view1.getInt32(ofst, true);
+                        ofst += 4;
+                        wheelsSetts = view1.getInt32(ofst, true);
+                        ofst += 4;
+                        inputGraphSetts = view1.getInt32(ofst, true);
+                        ofst += 4;
+                        absgripGraphSetts = view1.getInt32(ofst, true);
+                        ofst += 4;
+                        slipGraphSetts = view1.getInt32(ofst, true);
+                        ofst += 4;
+                        inputPercentsSetts = view1.getInt32(ofst, true);
+                        ofst += 4;
+                        standingsSetts = view1.getInt32(ofst, true);
+                        ofst += 4;
+                        startingLightsSetts = view1.getInt32(ofst, true);
+                        if ( !lastLapSetts )
+                            document.querySelector(".lastlapHider").classList.add('maxHide');
+                        if ( !bestLapSetts )
+                            document.querySelector(".bestlapHider").classList.add('maxHide');
+                        if ( !bestLapLeadSetts )
+                            document.querySelector(".bestlapleadHider").classList.add('maxHide');
+                        if ( !deltaSetts )
+                            document.querySelector(".deltaHider").classList.add('maxHide');
+                        if ( !radarSetts )
+                            document.querySelector(".myCanvasHider").classList.add('maxHide');
+                        if ( !allTimeBestTableSetts )
+                           document.querySelector(".fuelmonitorHider").classList.add('maxHide');
+                        if ( !relativeTableSetts )
+                            document.querySelector(".relativeHider").classList.add('maxHide');
+                        if ( !wheelsSetts )
+                            document.querySelector(".wheelsHider").classList.add('maxHide');
+                        if ( !absgripGraphSetts )
+                            document.querySelector(".chartabsHider").classList.add('maxHide');
+                        if ( !inputGraphSetts )
+                            document.querySelector(".chartHider").classList.add('maxHide');
+                        if ( !slipGraphSetts )
+                            cument.querySelector(".chartSlipHider").classList.add('maxHide');
+                        if ( !inputPercentsSetts )
+                            document.querySelector(".inputsHider").classList.add('maxHide');
+                        if ( !standingsSetts )
+                            document.querySelector(".porscheTableHider").classList.add('maxHide');
+                        if ( !startingLightsSetts )
+                            document.querySelector(".startLightHider").classList.add('maxHide');
+                        return;
+                        
+                        restoreHiddenState()
+                    }
+                } else {
+                    console.log("nonbin");
+                    console.log(event.data);
+                }
+            });
+            socket.addEventListener('close', (event) => { console.log(`Server closed connection: ${event.code} ${event.reason}`); });
+            socket.addEventListener('error', (event) => { console.error('WebSocket error:', event); });
+            socket.addEventListener('onclose', (event) => { console.error('WebSocket closed:', event); });
+        });
+    </script>
+    <style type="text/css">
+        body {
+            margin: 0;
+            overflow: hidden;
+            user-select: none; 
+        }
+
+        .backgroundColorRed{
+            background-color: #db5555;
+        }
+
+        .backgroundColorBlack{
+            background-color: #000;
+        }
+
+        .backgroundColorYellow{
+            background-color: #f7e372;
+        }
+
+        .backgroundColorGray{
+            background-color: rgb(233, 232, 232, 0.3);
+        }
+
+        .hide {
+            display: none;
+        }
+
+        .maxHide {
+            display: none !important;
+        }
+
+        .border {
+            border: 1px solid #ccc;
+        }
+        
+        .porscheTableImg {
+            display: flex;
+            position: relative;
+            padding-top: 50px;
+            transform: translateY(calc(4px * var(--i)));
+        }
+
+        #resizable-table {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+        }
+
+        table {
+            table-layout: fixed;
+        }
+
+        th,
+        td {
+            padding: 0px;
+            border: 1px solid #ccc;
+            width: 1px;
+            white-space: nowrap;
+        }
+
+        #draggable-corner {
+            display: none;
+            position: absolute;
+            width: 15px;
+            height: 15px;
+            top: 0;
+            left: 0;
+            background-color: #3498db;
+        }
+
+        .tg {
+            border-collapse: collapse;
+            border-spacing: 0;
+        }
+
+        .tg td {
+            border-color: black;
+            border-style: solid;
+            border-width: 1px;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            overflow: hidden;
+            padding: 10px 5px;
+            word-break: normal;
+        }
+
+        .tg th {
+            border-color: black;
+            border-style: solid;
+            border-width: 1px;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            font-weight: normal;
+            overflow: hidden;
+            padding: 10px 5px;
+            word-break: normal;
+        }
+
+        .tg .tg-11kk {
+            background-color: #656565;
+            border-color: #f8a102;
+            color: #ffffff;
+            font-size: 36px;
+            text-align: center;
+            vertical-align: middle
+        }
+
+        .tg .tg-agb7 {
+            background-color: #fd6864;
+            border-color: #f8a102;
+            color: #ffffff;
+            font-size: 36px;
+            text-align: center;
+            vertical-align: middle
+        }
+
+        .tg .tg-2uwx {
+            background-color: #343434;
+            border-color: #f8a102;
+            color: #ffffff;
+            font-size: 16px;
+            font-weight: bold;
+            text-align: center;
+            vertical-align: middle
+        }
+
+        .tg .tg-6wkr {
+            background-color: #656565;
+            border-color: #f8a102;
+            color: #fd6864;
+            font-size: 18px;
+            font-weight: bold;
+            text-align: center;
+            vertical-align: middle
+        }
+
+        .tg .tg-vr5q {
+            background-color: #656565;
+            border-color: #f8a102;
+            color: #67fd9a;
+            font-size: 18px;
+            font-weight: bold;
+            text-align: center;
+            vertical-align: middle
+        }
+
+        .tg .tg-ivzj {
+            background-color: #656565;
+            border-color: #9b9b9b;
+            color: #ffffff;
+            text-align: center;
+            vertical-align: middle
+        }
+
+        .tg .tg-a0w5 {
+            background-color: #656565;
+            color: #ffffff;
+            text-align: center;
+            vertical-align: middle
+        }
+
+        .tg .tg-be88 {
+            background-color: #656565;
+            border-color: inherit;
+            color: #ffffff;
+            font-size: 36px;
+            text-align: center;
+            vertical-align: middle
+        }
+
+        .tg .tg-wqw7 {
+            background-color: #656565;
+            border-color: inherit;
+            color: #ffffff;
+            font-size: 24px;
+            text-align: center;
+            vertical-align: middle
+        }
+
+        .tg .tg-yeut {
+            background-color: #656565;
+            border-color: inherit;
+            color: #ffffff;
+            font-weight: bold;
+            text-align: center;
+            vertical-align: middle
+        }
+
+        .tg .tg-a0w51{
+            background-color:#656565;
+            color:#ffffff;
+            text-align:center;
+            vertical-align:middle;
+            height: 5px;
+        }
+
+        .tg .tg-xtf7{background-color:#656565;border-color:#000000;color:#ffffff;font-weight:bold;text-align:center;vertical-align:middle}
+        .tg .tg-11ac{background-color:#656565;border-color:#000000;color:#ffffff;font-size:28px;font-weight:bold;text-align:center;
+          vertical-align:middle}
+
+        .outer-block {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            font-size: 26px;
+            font-weight: bold;
+            color: white;
+            text-shadow: -1px 0 black, 0 1px black, 1px 0 black, 0 -1px black; 
+        }
+
+        .scaler {
+            white-space: nowrap;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            font-size: 26px;
+            font-weight: bold;
+            color: white; 
+            text-shadow: -1px 0 black, 0 1px black, 1px 0 black, 0 -1px black; 
+        }
+
+        #toggle-settings {
+            position: absolute;
+            width: 15px;
+            height: 15px;
+            top: 0;
+            right: 0;
+            background-color: rgba(255, 255, 255, 0);
+        }
+        #reload-page {
+            position: absolute;
+            width: 5px;
+            height: 5px;
+            top: 0;
+            left: 0;
+            background-color: rgba(255, 255, 255, 0);
+        }
+
+        .over {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            grid-template-rows: repeat(2, 1fr);
+            justify-items: center;
+            align-items: center;
+            position: relative;
+            grid-row-gap: 7px; 
+            grid-column-gap: 5px; 
+        }
+        .container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 300px;
+            position: relative;
+        }
+
+        .div {
+            width: 100px;
+            height: 300px;
+            background-color: blue;
+            border: 2px solid black;
+        }
+
+        .div:first-child {
+            border-top-left-radius: 10px;
+            border-bottom-left-radius: 10px;
+        }
+
+        .div:last-child {
+            border-top-right-radius: 10px;
+            border-bottom-right-radius: 10px;
+        }
+
+        .content {
+            position: relative; 
+            top: 10px; 
+            left: calc(23%);
+            color: white;
+            font-size: 40px;
+            text-shadow: -2px 1px black, 0 2px black, 2px 0 black, 0 -2px black;
+        }
+
+        .data {
+            display: inline;
+        }
+
+        .sign {
+            display: inline;
+        }
+
+        .big-text {
+            position: absolute;
+            top: calc(56%);
+            left: calc(50%);
+            color: white;
+            font-size: 90px;
+            transform: translate(-50%, -50%);
+            text-shadow: -2px 0 black, 0 2px black, 2px 0 black, 0 -2px black;
+        }
+
+        .upper-text {
+            text-wrap: nowrap;
+            position: absolute;
+            top: calc(24%);
+            left: calc(50%);
+            color: white;
+            font-size: 35px;
+            transform: translateX(-50%);
+            text-shadow: -2px 0 black, 0 2px black, 2px 0 black, 0 -2px black;
+        }
+
+        .under-text {
+            position: absolute;
+            top: calc(77%);
+            left: calc(50%);
+            color: white;
+            font-size: 40px;
+            transform: translateX(-50%);
+            text-shadow: -2px 0 black, 0 2px black, 2px 0 black, 0 -2px black;
+        }
+
+        .small-div {
+            width: 30px; 
+            height: 100px; 
+            background-color: blue;
+            border-radius: 10px; 
+            border: 2px solid black; 
+            position:relative; 
+            left:-38px; 
+            bottom: -60px;
+        }
+
+        .small-div-right {
+            width: 30px; 
+            height: 100px; 
+            background-color: blue;
+            border-radius: 10px; 
+            border: 2px solid black; 
+            position:relative; 
+            left: 312px; 
+            bottom: -60px;
+        }
+        .vertical-text {
+            position: absolute;
+            color: white;
+            font-size: x-large;
+            transform-origin: center center;
+            top: 50%;
+            left: calc(50% - 2px);
+            width: 70px;
+            transform: translate(-50%, -50%) rotate(90deg);
+            text-align: center;
+        }
+        
+        .traffic-light {
+            width: 50px;
+            background-color: #333;
+            border-radius: 10px;
+            padding: 10px;
+        }
+
+        .light {
+            height: 50px;
+            width: 50px;
+            margin-bottom: 10px;
+            border-radius: 50%;
+        }
+
+        .red {
+            background-color: #f00;
+        }
+
+        .green {
+            background-color: #0f0;
+        }
+        .off {
+            background-color: #555;
+        }
+        .graphbackground {
+            background-color: rgba(2, 2, 2, 0.5);
+        }
+            
+        @font-face {
+            font-family: 'porsche-next';
+            src: url('http://localhost:8081/porsche-next.otf');
+        }
+        @font-face {
+            font-family: 'porsche-next-semibold';
+            src: url('http://localhost:8081/porsche-next-semibold.otf');
+        } 
+
+        :root {
+            --widthLap: 50px;
+            --widthTime: 220px;
+            --heightHeader: 50px;
+            --widthTable: calc(var(--widthLap) + var(--widthTime));
+            --heightHeaderSeparator: 10px;
+            --widthVerticalSeparator: 4px;
+            --heightDriverLine: 50px;
+            --widthPit: 50px;
+            --widthDriverTime: 100px;
+            --heightRepSeparator: 4px;
+            --widthRep: 100px;
+            --widthTriangleRep: 10px;
+            --heightRep: 15px;
+        }
+        .header {
+            display: flex;
+            color: #fff;
+        }
+        .part {
+            display: flex;
+        }
+        .text {
+            font-size: 20px;
+            font-weight: normal;
+            font-family: 'porsche-next', Fallback, sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .textRep {
+            font-size: 11px;
+            font-weight: normal;
+            font-family: 'porsche-next', Fallback, sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .textSemibold {
+            font-size: 20px;
+            font-weight: normal;
+            font-family: 'porsche-next-semibold', Fallback, sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .topRectangleFirst {
+            width: var(--widthLap);
+            height: var(--heightHeader);
+            background-color: #000;
+            border-top-left-radius: 20px;
+        }
+        .topRectangleSecond {
+            width: var(--widthTime);
+            height: var(--heightHeader);
+            background-color: #000;
+        }
+        .rectangularBarRep {
+            width: var(--widthRep);
+            height: var(--heightRep);
+            background-color: #000;
+            color: #fff;
+        }
+        .triangleRep {
+            margin-left: calc(var(--widthTable) - var(--widthTriangleRep) - var(--widthRep));
+            width: 0;
+            height: 0;
+            border-left: var(--widthTriangleRep) solid transparent;
+            border-right: 0px solid transparent;
+            border-top: var(--heightRep) solid black;
+        }
+        .splitBlack {
+            width: calc(var(--widthTable));
+            height: var(--heightHeaderSeparator);
+            background-color: #000;
+        }
+        .splitGreen {
+            width: calc(var(--widthTable));
+            height: var(--heightHeaderSeparator);
+            background-color: rgb(6, 250, 12);
+        }
+        .splitYellow {
+            width: calc(var(--widthTable));
+            height: var(--heightHeaderSeparator);
+            background-color: #f8fb02;
+        }
+        .driverLine {
+            display: flex;
+            color: #fff;
+        }
+        .positionRect {
+            width: var(--widthLap);
+            height: var(--heightDriverLine);
+            background-color: #000;
+        }
+        .vericalSeparatorAlpha {
+            width: var(--widthVerticalSeparator);
+            height: var(--heightDriverLine);
+            background-color: rgba(0, 0, 0, 0);
+        }
+        .vericalSeparatorRed {
+            width: var(--widthVerticalSeparator);
+            height: var(--heightDriverLine);
+            background-color: rgb(255, 49, 29);
+        }
+        .vericalSeparatorGreen {
+            width: var(--widthVerticalSeparator);
+            height: var(--heightDriverLine);
+            background-color: rgb(49, 255, 29);
+        }
+        .driverName {
+            width: calc(var(--widthTable) - var(--widthVerticalSeparator) * 2 - var(--widthLap) - var(--widthPit));
+            height: var(--heightDriverLine);
+            background-color: #000;
+        }
+        .pit {
+            width: var(--widthPit);
+            height: var(--heightDriverLine);
+            background-color: #fff;
+            color: #000;
+        }
+        .driverTimeFirst {
+            width: var(--widthDriverTime);
+            height: var(--heightDriverLine);
+            background-color: #000;
+            color: #fff;
+            border-bottom-right-radius: 20px;
+        }
+        .driverTime {
+            width: var(--widthDriverTime);
+            height: var(--heightDriverLine);
+            background-color: rgba(233, 232, 232, 0.3);
+            color: #fff;
+            border-bottom-right-radius: 20px;
+        }
+        .scaler .driverSeparatorAbove {
+            width: var(--widthDriverTime);
+            height: var(--heightRepSeparator);
+            background-color: #fff0;
+            color: #000;
+        }
+        .driverSeparatorUnder {
+            width: calc(var(--widthTable));
+            height: var(--heightRepSeparator);
+            background-color: #fff0;
+            color: #000;text-align: right;
+        }
+        .scaler .driverBlock {
+            display: flex;
+            flex-direction: row-reverse;
+            flex-wrap: nowrap;
+            transform: translateY(calc(4px * var(--i)));
+        }
+        .flexingParent {
+            /* display: inline-block; */
+            
+            display: flex;
+        }
+        .flexingChild {
+            display: grid;
+            justify-items: center;
+        }
+        .rectangle {
+            position: relative;
+            border-top-left-radius: 35px;
+            border-bottom-left-radius: 5px;
+            width: 112px;
+            height: 50px;
+            background-color: white;
+            display: inline-block;
+        }
+
+        .triangle {
+            position: relative;
+            width: 0;
+            height: 0;
+            border-right: 25px solid transparent;
+            border-top: 50px solid white;
+            display: inline-block;
+        }
+        .rectangle1 {
+            position: relative;
+            left: -18px;
+            border-top-right-radius: 5px;
+            border-bottom-right-radius: 35px;
+            width: 66px;
+            height: 50px;
+            background-color: white;
+            display: inline-block;
+        }
+
+        .triangle1 {
+            position: relative;
+            left: -18px;
+            width: 0;
+            height: 0;
+            border-left: 25px solid transparent;
+            border-bottom: 50px solid white;
+            display: inline-block;
+        }
+
+        .textBlockTime {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-38%, -50%);
+            color: black;
+            font-weight: bold;
+            font-size: 20px;
+        }
+        .textBlockDelta {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-62%, -50%);
+            color: red;
+            font-weight: bold;
+            font-size: 20px;
+        }
+    </style>
+</head>
+
+<body class="hide">
+    <div id="resizable-table" class="outer-block fuelmonitorHider">
+        <div class="scaler">
+            <table class="tg" id="fuelmonitor">
+                <tbody>
+                    <tr>
+                    <td class="tg-xtf7">Fuel/Lap</td>
+                    <td class="tg-xtf7">Best Lap</td>
+                    </tr>
+                    <tr>
+                    <td class="tg-11ac">9.99</td>
+                    <td class="tg-11ac">8:32.000</td>
+                    </tr>
+                    <tr>
+                    <td class="tg-11ac">432.00</td>
+                    <td class="tg-11ac">200.00</td>
+                    </tr>
+                    <tr>
+                    <td class="tg-xtf7">Fuel Race</td>
+                    <td class="tg-xtf7">Fuel Remain</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div id="draggable-corner" class="hide"></div>
+    </div>
+
+
+    <div id="resizable-table" class="outer-block relativeHider">
+        <div class="scaler">
+            <table class="tg" id="relative">
+                <tbody>
+                    <tr>
+                        <td class="tg-a0w5">0</td>
+                        <td class="tg-a0w5">Loading...</td>
+                        <td class="tg-a0w5">0/0</td>
+                        <td class="tg-a0w5">0</td>
+                    </tr>
+                    <tr>
+                        <td class="tg-a0w5">0</td>
+                        <td class="tg-a0w5">Loading...</td>
+                        <td class="tg-a0w5">0/0</td>
+                        <td class="tg-a0w5">0</td>
+                    </tr>
+                    <tr>
+                        <td class="tg-a0w5">0</td>
+                        <td class="tg-a0w5">Loading...</td>
+                        <td class="tg-a0w5">0/0</td>
+                        <td class="tg-a0w5">0</td>
+                    </tr>
+                    <tr>
+                        <td class="tg-a0w5">0</td>
+                        <td class="tg-a0w5">Loading...</td>
+                        <td class="tg-a0w5">0/0</td>
+                        <td class="tg-a0w5">0</td>
+                    </tr>
+                    <tr>
+                        <td class="tg-a0w5">0</td>
+                        <td class="tg-a0w5">Loading...</td>
+                        <td class="tg-a0w5">0/0</td>
+                        <td class="tg-a0w5">0</td>
+                    </tr>
+                    <tr>
+                        <td class="tg-a0w5">0</td>
+                        <td class="tg-a0w5" style="background-color: rgb(233, 232, 232);">Loading...</td>
+                        <td class="tg-a0w5">0/0</td>
+                        <td class="tg-a0w5">0</td>
+                    </tr>
+                    <tr>
+                        <td class="tg-a0w5">0</td>
+                        <td class="tg-a0w5">Loading...</td>
+                        <td class="tg-a0w5">0/0</td>
+                        <td class="tg-a0w5">0</td>
+                    </tr>
+                    <tr>
+                        <td class="tg-a0w5">0</td>
+                        <td class="tg-a0w5">Loading...</td>
+                        <td class="tg-a0w5">0/0</td>
+                        <td class="tg-a0w5">0</td>
+                    </tr>
+                    <tr>
+                        <td class="tg-a0w5">0</td>
+                        <td class="tg-a0w5">Loading...</td>
+                        <td class="tg-a0w5">0/0</td>
+                        <td class="tg-a0w5">0</td>
+                    </tr>
+                    <tr>
+                        <td class="tg-a0w5">0</td>
+                        <td class="tg-a0w5">Loading...</td>
+                        <td class="tg-a0w5">0/0</td>
+                        <td class="tg-a0w5">0</td>
+                    </tr>
+                    <tr>
+                        <td class="tg-a0w5">0</td>
+                        <td class="tg-a0w5">Loading...</td>
+                        <td class="tg-a0w5">0/0</td>
+                        <td class="tg-a0w5">0</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div id="draggable-corner" class="hide"></div>
+
+    </div>
+    <div id="resizable-table" class="canv myCanvasHider">
+        <div class="scaler">
+            <canvas class="border" id="myCanvas" width="400" height="400"></canvas>
+        </div>
+        <div id="draggable-corner" class="hide"></div>
+    </div>
+    <div id="resizable-table" class="outer-block deltaHider">
+        <div class="scaler">
+            <div id="delta" class="inner-block">-</div>
+            <div class="inner-block">Delta</div>
+        </div>
+        <div id="draggable-corner" class="hide"></div>
+    </div>
+    <div id="resizable-table" class="outer-block bestlapHider">
+        <div class="scaler">
+            <div id="bestlap" class="inner-block">-</div>
+            <div class="inner-block">Best Lap</div>
+        </div>
+        <div id="draggable-corner" class="hide"></div>
+    </div>
+    <div id="resizable-table" class="outer-block bestlapleadHider">
+        <div class="scaler">
+            <div id="bestlaplead" class="inner-block">-</div>
+            <div class="inner-block">Best Lap Leader</div>
+        </div>
+        <div id="draggable-corner" class="hide"></div>
+    </div>
+    <div id="resizable-table" class="outer-block lastlapHider">
+        <div class="scaler">
+            <div id="lastlap" class="inner-block">-</div>
+            <div class="inner-block">Last Lap</div>
+        </div>
+        <div id="draggable-corner" class="hide"></div>
+    </div>
+    <div id="resizable-table" class="outer-block inputsHider">
+        <div class="scaler">
+            <table class="tg" id="inputs">
+                <tbody>
+                    <tr>
+                        <td class="tg-a0w51">100</td>
+                        <td class="tg-a0w51">100</td>
+                    </tr>
+                    <tr>
+                        <td class="tg-a0w51">100</td>
+                        <td class="tg-a0w51">100</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div id="draggable-corner" class="hide"></div>
+    </div>
+    <div id="toggle-settings"></div>
+    <div id="reload-page"></div>
+    
+    <div id="resizable-table" class="outer-block wheelsHider">
+        <div class="over scaler">
+            <div class="container" id="wheels">
+    
+                <div class="div">
+                <div class="content"><div class="data" id="flTemp1">123</div><div class="sign">°</div></div>
+                <div class="big-text"><div class="data" id="flWear">100</div><div class="sign"></div></div>
+                <div class="upper-text"><div class="data" id="flPressure">241</div><div class="sign"> kPa</div></div>
+                <div class="under-text"><div class="data" id="flDirt">100</div><div class="sign">%</div></div>
+                <div class="small-div"><div class="vertical-text"><div class="data" id="flBrake">123</div><div class="sign">°</div></div></div>
+                </div>
+                
+                <div class="div">
+                <div class="content"><div class="data" id="flTemp2">456</div><div class="sign">°</div></div>
+                </div>
+                
+                <div class="div">
+                <div class="content"><div class="data" id="flTemp3">789</div><div class="sign">°</div></div>
+                </div>
+                
+            </div>
+            <div class="container">
+    
+                <div class="div">
+                <div class="content"><div class="data" id="frTemp1">123</div><div class="sign">°</div></div>
+                <div class="big-text"><div class="data" id="frWear">100</div><div class="sign"></div></div>
+                <div class="upper-text"><div class="data" id="frPressure">241</div><div class="sign"> kPa</div></div>
+                <div class="under-text"><div class="data" id="frDirt">100</div><div class="sign">%</div></div>
+                <div class="small-div-right"><div class="vertical-text"><div class="data" id="frBrake">123</div><div class="sign">°</div></div></div>
+                </div>
+                
+                <div class="div">
+                <div class="content"><div class="data" id="frTemp2">456</div><div class="sign">°</div></div>
+                </div>
+                
+                <div class="div">
+                <div class="content"><div class="data" id="frTemp3">789</div><div class="sign">°</div></div>
+                </div>
+                
+            </div>
+            <div class="container">
+    
+                <div class="div">
+                <div class="content"><div class="data" id="rlTemp1">123</div><div class="sign">°</div></div>
+                <div class="big-text"><div class="data" id="rlWear">100</div><div class="sign"></div></div>
+                <div class="upper-text"><div class="data" id="rlPressure">241</div><div class="sign"> kPa</div></div>
+                <div class="under-text"><div class="data" id="rlDirt">100</div><div class="sign">%</div></div>
+                <div class="small-div"><div class="vertical-text"><div class="data" id="rlBrake">123</div><div class="sign">°</div></div></div>
+                </div>
+                
+                <div class="div">
+                <div class="content"><div class="data" id="rlTemp2">456</div><div class="sign">°</div></div>
+                </div>
+                
+                <div class="div">
+                <div class="content"><div class="data" id="rlTemp3">789</div><div class="sign">°</div></div>
+                </div>
+                
+            </div>
+            <div class="container">
+    
+                <div class="div">
+                <div class="content"><div class="data" id="rrTemp1">123</div><div class="sign">°</div></div>
+                <div class="big-text"><div class="data" id="rrWear">100</div><div class="sign"></div></div>
+                <div class="upper-text"><div class="data" id="rrPressure">241</div><div class="sign"> kPa</div></div>
+                <div class="under-text"><div class="data" id="rrDirt">111</div><div class="sign">%</div></div>
+                <div class="small-div-right"><div class="vertical-text"><div class="data" id="rrBrake">123</div><div class="sign">°</div></div></div>
+                </div>
+                
+                <div class="div">
+                <div class="content"><div class="data" id="rrTemp2">456</div><div class="sign">°</div></div>
+                </div>
+                
+                <div class="div">
+                <div class="content"><div class="data" id="rrTemp3">789</div><div class="sign">°</div></div>
+                </div>
+                
+            </div>
+        </div>
+        <div id="draggable-corner" class="hide"></div>
+    </div>
+    <div id="resizable-table" class="outer-block startLightHider">
+        <div class="scaler">
+            <div id="startLight" class="inner-block traffic-light hide">
+                <div class="light off"></div>
+                <div class="light off"></div>
+                <div class="light off"></div>
+                <div class="light off"></div>
+                <div class="light off"></div>
+                <div class="light off"></div>
+            </div>
+        </div>
+        <div id="draggable-corner" class="hide"></div>
+    </div>
+    <div id="resizable-table" class="chartabsHider">
+        <div class="scaler">
+            <div class="graphbackground">
+                <canvas id="graphCanvas" width="600" height="150"></canvas>
+            </div>
+        </div>
+        <div id="draggable-corner" class="hide"></div>
+    </div>
+    <div id="resizable-table" class="chartHider">
+        <div class="scaler">
+            <div class="graphbackground">
+                <canvas id="chart" width="400" height="150"></canvas>
+            </div>
+        </div>
+        <div id="draggable-corner" class="hide"></div>
+    </div>
+    <div id="resizable-table" class="chartSlipHider">
+        <div class="scaler">
+            <div class="graphbackground">
+                <canvas id="chartSlip" width="400" height="150"></canvas>
+            </div>
+        </div>
+        <div id="draggable-corner" class="hide"></div>
+    </div>
+    <div id="resizable-table" class="porscheTableHider flexingParent">
+        <div id="porscheTable" class="scaler flexingChild">
+            <div class="header"><div id="raceLaps" class="topRectangleFirst text">66</div><div id="raceTime" class="topRectangleSecond text">99:59:59</div></div>
+            <div class="splitBlack"></div>
+            <div id="splitFlag" class="splitGreen"></div>
+            <div class="driverBlock">
+                <div class="driverLine"><div class="positionRect text">1</div><div class="vericalSeparatorAlpha"></div><div class="driverName text">A. RandomName</div><div class="vericalSeparatorRed"></div><div class="pit text">435</div><div class="driverTimeFirst textSemibold">Gap</div></div>
+                <div class="driverSeparatorAbove"></div>
+            </div>
+            
+            <img src="http://localhost:8081/2.png" alt="Description of the image" class="porscheTableImg" id="pImg">
+        </div>
+        <div class="hide"><div id="driverBlock" class="driverBlock">
+            <div class="driverLine"><div class="positionRect text">2</div><div class="vericalSeparatorAlpha"></div><div class="driverName text">A. RandomName</div><div class="vericalSeparatorRed"></div><div class="pit text"></div><div class="driverTime textSemibold">99.999</div></div>
+            <div class="driverSeparatorAbove"></div>
+        </div></div>
+        <div id="draggable-corner" class="hide"></div>
+    </div>
+    <script>
+        // mapping of keys → { selector, storageKey }
+        const keyMap = {
+            "t": { selector: ".lastlapHider", storageKey: "lastLapSetts" },
+            "1": { selector: ".bestlapHider", storageKey: "bestLapSetts" },
+            "l": { selector: ".bestlapleadHider", storageKey: "bestLapLeadSetts" },
+            "d": { selector: ".deltaHider", storageKey: "deltaSetts" },
+            "0": { selector: ".myCanvasHider", storageKey: "radarSetts" },
+            "a": { selector: ".fuelmonitorHider", storageKey: "allTimeBestTableSetts" },
+            "r": { selector: ".relativeHider", storageKey: "relativeTableSetts" },
+            "w": { selector: ".wheelsHider", storageKey: "wheelsSetts" },
+            "g": { selector: ".chartabsHider", storageKey: "absgripGraphSetts" },
+            "i": { selector: ".chartHider", storageKey: "inputGraphSetts" },
+            "s": { selector: ".chartSlipHider", storageKey: "slipGraphSetts" },
+            "p": { selector: ".inputsHider", storageKey: "inputPercentsSetts" },
+            "c": { selector: ".porscheTableHider", storageKey: "standingsSetts" },
+            "x": { selector: ".startLightHider", storageKey: "startingLightsSetts" }
+        };
+    
+        // restore hidden/visible states from localStorage
+        function restoreHiddenState() {
+            Object.values(keyMap).forEach(({ selector, storageKey }) => {
+                const el = document.querySelector(selector);
+                if (!el) return;
+                const state = localStorage.getItem(storageKey);
+                if (state === "hidden") {
+                    el.classList.add("maxHide");
+                } else if (state === "visible") {
+                    el.classList.remove("maxHide");
+                }
+            });
+        }
+    
+        // toggle element and save state
+        function toggleElement(selector, storageKey) {
+            const el = document.querySelector(selector);
+            if (!el) return;
+            el.classList.toggle("maxHide");
+            const isHidden = el.classList.contains("maxHide");
+            localStorage.setItem(storageKey, isHidden ? "hidden" : "visible");
+        }
+    
+        // restore on page load
+        //window.addEventListener("DOMContentLoaded", restoreHiddenState);
+    
+        // key listener
+        document.addEventListener("keydown", (e) => {
+        const key = e.key.toLowerCase();
+        if (keyMap[key]) {
+            toggleElement(keyMap[key].selector, keyMap[key].storageKey);
+        }
+        });
+    </script>
+</body>
+</html>
