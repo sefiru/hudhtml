@@ -2596,96 +2596,80 @@
         <div id="draggable-corner" class="hide"></div>
     </div>
     <script>
-        // mapping of keys → { selector, storageKey }
         const keyMap = {
-            "t": { selector: ".lastlapHider", storageKey: "lastLapSetts" },
-            "1": { selector: ".bestlapHider", storageKey: "bestLapSetts" },
-            "l": { selector: ".bestlapleadHider", storageKey: "bestLapLeadSetts" },
-            "d": { selector: ".deltaHider", storageKey: "deltaSetts" },
-            "0": { selector: ".myCanvasHider", storageKey: "radarSetts" },
-            "a": { selector: ".fuelmonitorHider", storageKey: "allTimeBestTableSetts" },
-            "r": { selector: ".relativeHider", storageKey: "relativeTableSetts" },
-            "w": { selector: ".wheelsHider", storageKey: "wheelsSetts" },
-            "g": { selector: ".chartabsHider", storageKey: "absgripGraphSetts" },
-            "i": { selector: ".chartHider", storageKey: "inputGraphSetts" },
-            "s": { selector: ".chartSlipHider", storageKey: "slipGraphSetts" },
-            "p": { selector: ".inputsHider", storageKey: "inputPercentsSetts" },
-            "c": { selector: ".porscheTableHider", storageKey: "standingsSetts" },
-            "x": { selector: ".startLightHider", storageKey: "startingLightsSetts" },
+            "t": { selectors: ["lastlapHider", "bestlapHider", "bestlapleadHider", "deltaHider"], storageKeys: ["lastLapSetts", "bestLapSetts", "bestLapLeadSetts", "deltaSetts"] },
+            "r": { selectors: ["relativeHider"], storageKeys: ["relativeTableSetts"] },
+            "0": { selectors: ["myCanvasHider"], storageKeys: ["radarSetts"] },
+            "a": { selectors: ["fuelmonitorHider"], storageKeys: ["allTimeBestTableSetts"] },
+            "w": { selectors: ["wheelsHider"], storageKeys: ["wheelsSetts"] },
+            "g": { selectors: ["chartabsHider"], storageKeys: ["absgripGraphSetts"] },
+            "i": { selectors: ["chartHider"], storageKeys: ["inputGraphSetts"] },
+            "s": { selectors: ["chartSlipHider"], storageKeys: ["slipGraphSetts"] },
+            "p": { selectors: ["inputsHider"], storageKeys: ["inputPercentsSetts"] },
+            "c": { selectors: ["porscheTableHider"], storageKeys: ["standingsSetts"] },
+            "x": { selectors: ["startLightHider"], storageKeys: ["startingLightsSetts"] },
 
-            // special toggle-all key
-            "z": { action: "toggleAll" }
+            "z": { action: "toggleAll" } // global toggle
         };
 
-        const selectorMap = {};
-        Object.values(keyMap).forEach(({ selector, storageKey, action }) => {
-            if (action) return;
-            selectorMap[selector] = storageKey;
-        });
-
-    
-        // restore hidden/visible states from localStorage
+        // restore state for all mapped selectors
         function restoreHiddenState() {
-            Object.values(keyMap).forEach(({ selector, storageKey }) => {
-                const el = document.querySelector(selector);
-                if (!el) return;
-                const state = localStorage.getItem(storageKey);
-                if (state === "hidden") {
-                    el.classList.add("maxHide");
-                } else if (state === "visible") {
-                    el.classList.remove("maxHide");
-                }
+        Object.values(keyMap).forEach(({ selectors, storageKeys, action }) => {
+            if (action) return;
+            selectors.forEach((selector, idx) => {
+            const el = document.querySelector(`.${selector}`);
+            if (!el) return;
+            const state = localStorage.getItem(storageKeys[idx]);
+            if (state === "hidden") el.classList.add("maxHide");
+            else el.classList.remove("maxHide");
             });
+        });
         }
-    
-        // toggle element and save state
-        function toggleElement(selector, storageKey) {
-            const el = document.querySelector(selector);
+
+        // toggle multiple selectors bound to one key
+        function toggleElements(selectors, storageKeys) {
+        selectors.forEach((selector, idx) => {
+            const el = document.querySelector(`.${selector}`);
             if (!el) return;
             el.classList.toggle("maxHide");
-            const isHidden = el.classList.contains("maxHide");
-            localStorage.setItem(storageKey, isHidden ? "hidden" : "visible");
+            localStorage.setItem(storageKeys[idx], el.classList.contains("maxHide") ? "hidden" : "visible");
+        });
         }
 
+        // toggle all widgets (with remember/restore logic)
         function toggleAllWidgets() {
-            let allHidden = localStorage.getItem("allHidden") === "true";
-            allHidden = !allHidden; // flip the toggle
-            localStorage.setItem("allHidden", allHidden);
+        let allHidden = localStorage.getItem("allHidden") === "true";
+        allHidden = !allHidden;
+        localStorage.setItem("allHidden", allHidden);
 
-            Object.values(keyMap).forEach(({ selector, storageKey, action }) => {
-                if (action) return;
-                const el = document.querySelector(selector);
-                if (!el) return;
+        Object.values(keyMap).forEach(({ selectors, storageKeys, action }) => {
+            if (action) return;
+            selectors.forEach((selector, idx) => {
+            const el = document.querySelector(`.${selector}`);
+            if (!el) return;
 
-                if (allHidden) {
-                // store current visibility before hiding
+            if (allHidden) {
                 const currentlyVisible = !el.classList.contains("maxHide");
-                localStorage.setItem(storageKey, currentlyVisible ? "visible" : "hidden");
+                localStorage.setItem(storageKeys[idx], currentlyVisible ? "visible" : "hidden");
                 el.classList.add("maxHide");
-                } else {
-                // restore from storage
-                const state = localStorage.getItem(storageKey);
+            } else {
+                const state = localStorage.getItem(storageKeys[idx]);
                 if (state === "hidden") el.classList.add("maxHide");
                 else el.classList.remove("maxHide");
-                }
+            }
             });
+        });
         }
-    
-        // restore on page load
-        //window.addEventListener("DOMContentLoaded", restoreHiddenState);
-    
-        // key listener
-        document.addEventListener("keydown", (e) => {
-            // const key = e.key.toLowerCase();
-            // if (keyMap[key]) {
-            //     toggleElement(keyMap[key].selector, keyMap[key].storageKey);
-            // }
-            const key = e.key.toLowerCase();
-            const mapping = keyMap[key];
-            if (!mapping) return;
 
-            if (mapping.action === "toggleAll") toggleAllWidgets();
-            else toggleElement(mapping.selector, mapping.storageKey);
+        window.addEventListener("DOMContentLoaded", restoreHiddenState);
+
+        document.addEventListener("keydown", (e) => {
+        const key = e.key.toLowerCase();
+        const mapping = keyMap[key];
+        if (!mapping) return;
+
+        if (mapping.action === "toggleAll") toggleAllWidgets();
+        else toggleElements(mapping.selectors, mapping.storageKeys);
         });
     </script>
 </body>
